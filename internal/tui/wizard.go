@@ -1,0 +1,249 @@
+package tui
+
+import (
+	"fmt"
+
+	"charon/internal/profile"
+	"charon/internal/secret"
+
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+const (
+	fieldName  = "\x00name"
+	fieldURL   = "\x00url"
+	fieldToken = "\x00token"
+	fieldModel = "\x00model"
+	fieldSave  = "\x00save"
+)
+
+type wizard struct {
+	endpoint, key, model string
+	name                 string // target profile name when editing
+	origName             string // pre-edit name, to clean up on rename
+	edit                 bool   // true = overwrite an existing profile
+}
+
+// wizardStep maps an add-flow view to its 1-based step index, the total number
+// of steps, and a short label. total is 0 for views with no progress indicator
+// (edit and non-wizard screens).
+func wizardStep(v view) (n, total int, label string) {
+	switch v {
+	case viewAddEndpoint:
+		return 1, 4, "API base URL"
+	case viewAddKey:
+		return 2, 4, "API key"
+	case viewFetching, viewPickModel:
+		return 3, 4, "choose a model"
+	case viewAddName:
+		return 4, 4, "name the profile"
+	}
+	return 0, 0, ""
+}
+
+// loadEditForm populates the field picker from the working wizard values.
+func (m *model) loadEditForm() {
+	token := "(none)"
+	if m.wiz.key != "" {
+		token = secret.Mask(m.wiz.key)
+	}
+	modelVal := m.wiz.model
+	if modelVal == "" {
+		modelVal = "(none)"
+	}
+	endpoint := m.wiz.endpoint
+	if endpoint == "" {
+		endpoint = "(none)"
+	}
+	m.list.SetDelegate(themedDelegate()) // two-line rows show each field's value
+	m.list.SetItems([]list.Item{
+		item{title: "Name", desc: m.wiz.name, value: fieldName},
+		item{title: "URL", desc: endpoint, value: fieldURL},
+		item{title: "Token", desc: token, value: fieldToken},
+		item{title: "Model", desc: modelVal + "  (enter to fetch & pick)", value: fieldModel},
+		item{title: "✓ Save changes", desc: "apply and switch to this profile", value: fieldSave},
+	})
+	m.list.Title = fmt.Sprintf("Edit %s / %s", m.tool.Title, m.wiz.name)
+	// Land on the field last visited; a fresh edit falls back to the first row.
+	m.list.Select(0)
+	m.selectByValue(m.editField)
+	m.setHelpKeys(
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit field")),
+		keyBack,
+	)
+}
+
+// onEditFormSelect handles a chosen row in the edit field-picker.
+func (m model) onEditFormSelect(field string) (tea.Model, tea.Cmd) {
+	switch field {
+	case fieldName:
+		m.editField = field
+		m.view = viewEditField
+		m.startInput("profile name", false)
+		m.input.SetValue(m.wiz.name)
+		return m, textinput.Blink
+	case fieldURL:
+		m.editField = field
+		m.view = viewEditField
+		m.startInput(exampleEndpoint, false)
+		m.input.SetValue(m.wiz.endpoint)
+		return m, textinput.Blink
+	case fieldToken:
+		m.editField = field
+		m.view = viewEditField
+		m.startInput("API key", true)
+		m.input.SetValue(m.wiz.key)
+		return m, textinput.Blink
+	case fieldModel:
+		m.editField = fieldModel
+		if m.wiz.endpoint == "" || m.wiz.key == "" {
+			m.setStatus(statusInfo, "set URL and token first, then fetch models")
+			return m, nil
+		}
+		m.fromForm = true
+		cmd := m.beginFetch()
+		return m, cmd
+	case fieldSave:
+		return m.finishAdd(m.wiz.name)
+	}
+	return m, nil
+}
+
+func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		if m.view == viewEditField {
+			m.view = viewEditForm // cancel a single field → back to the form
+			m.loadEditForm()
+			return m, nil
+		}
+		m.view = viewProfiles
+		m.setStatus(statusInfo, "cancelled")
+		m.loadProfiles()
+		return m, nil
+	case "enter":
+		val := m.input.Value()
+		switch m.view {
+		case viewEditField:
+			refetch := false
+			switch m.editField {
+			case fieldName:
+				if val != "" {
+					m.wiz.name = val
+				}
+			case fieldURL:
+				if m.wiz.endpoint != val {
+					m.wiz.endpoint = val
+					refetch = true
+				}
+			case fieldToken:
+				if m.wiz.key != val {
+					m.wiz.key = val
+					refetch = true
+				}
+			}
+			if refetch && m.wiz.endpoint != "" && m.wiz.key != "" {
+				m.fromForm = true
+				cmd := m.beginFetch()
+				return m, cmd
+			}
+			m.view = viewEditForm
+			m.loadEditForm()
+			return m, nil
+
+		case viewSaveName:
+			if val == "" {
+				m.setStatus(statusInfo, "name required")
+				return m, nil
+			}
+			if err := m.store.Save(m.tool, val, val, ""); err != nil {
+				m.setStatus(statusErr, err.Error())
+			} else {
+				m.setStatus(statusOK, "Saved current config as "+val)
+			}
+			m.view = viewProfiles
+			m.loadProfiles()
+			return m, nil
+
+		case viewAddEndpoint:
+			m.wiz.endpoint = m.tool.ResolveEndpoint(val) // blank accepts the provider default
+			m.view = viewAddKey
+			m.startInput("API key", true)
+			return m, textinput.Blink
+
+		case viewAddKey:
+			if val == "" {
+				m.setStatus(statusInfo, "key required")
+				return m, nil
+			}
+			m.wiz.key = val
+			cmd := m.beginFetch()
+			return m, cmd
+
+		case viewAddName:
+			if val == "" {
+				m.setStatus(statusInfo, "name required")
+				return m, nil
+			}
+			return m.finishAdd(val)
+		}
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// updateConfirmDelete handles the y/n prompt guarding profile deletion.
+func (m model) updateConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		name := m.delTarget
+		m.delTarget = ""
+		m.view = viewProfiles
+		if err := m.store.Remove(m.tool.Name, name); err != nil {
+			m.setStatus(statusErr, err.Error())
+		} else {
+			m.setStatus(statusOK, "Deleted "+name)
+		}
+		m.loadProfiles()
+		return m, nil
+	case "n", "N", "esc", "q":
+		m.delTarget = ""
+		m.view = viewProfiles
+		m.setStatus(statusInfo, "cancelled")
+		m.loadProfiles()
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// finishAdd writes the wizard's endpoint/key/model into the tool's live config
+// and snapshots it as the named profile.
+func (m model) finishAdd(name string) (tea.Model, tea.Cmd) {
+	spec := profile.Spec{Endpoint: m.wiz.endpoint, Key: m.wiz.key, Model: m.wiz.model}
+	if err := m.store.AddProfile(m.tool, name, spec); err != nil {
+		m.setStatus(statusErr, err.Error())
+	} else {
+		verb := "Added"
+		if m.wiz.edit {
+			verb = "Updated"
+			// If the profile was renamed, remove the old one.
+			if m.wiz.origName != "" && m.wiz.origName != name {
+				_ = m.store.Remove(m.tool.Name, m.wiz.origName)
+			}
+		}
+		model := m.wiz.model
+		if model == "" {
+			model = "no model override"
+		}
+		m.setStatus(statusOK, fmt.Sprintf("%s %s (%s · %s)", verb, name, m.wiz.endpoint, model))
+	}
+	m.view = viewProfiles
+	m.loadProfiles()
+	return m, nil
+}
