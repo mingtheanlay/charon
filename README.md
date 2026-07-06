@@ -11,7 +11,7 @@
 
 # Charon
 
-A small Go CLI that detects the **Codex**, **Claude Code**, and **OpenCode**
+A tiny Go CLI that detects the **Codex**, **Claude Code**, and **OpenCode**
 CLIs and switches each one's **endpoint + credentials** between named profiles.
 Each profile is a full snapshot of that tool's auth surface, so it works for
 both API-key logins and OAuth/ChatGPT sessions.
