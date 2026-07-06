@@ -16,11 +16,12 @@ const bannerArt = ` ██████╗██╗  ██╗ █████╗
 
 var (
 	bannerStyle  = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
-	taglineStyle = lipgloss.NewStyle().Foreground(colorMuted).Italic(true).PaddingLeft(1)
+	taglineStyle = lipgloss.NewStyle().Foreground(colorAccent).Italic(true).PaddingLeft(1)
 )
 
 // banner returns the styled splash shown atop the tool-selection screen.
 func banner() string {
 	return bannerStyle.Render(bannerArt) + "\n" +
-		taglineStyle.Render("⛴  ferry your AI tools between endpoints · q to quit")
+		taglineStyle.Render("⛴  ferry your AI tools between endpoints") + "  " +
+		hintStyle.Render("· ↑/↓ move · ? help · ctrl+d quit")
 }
