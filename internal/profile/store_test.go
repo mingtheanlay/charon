@@ -150,6 +150,27 @@ func TestApplyRemovesAbsentArtifact(t *testing.T) {
 	}
 }
 
+func TestSaveWithSpecAndGetSpec(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	write(t, cfg, "c")
+
+	s := newStore(t)
+	want := Spec{Endpoint: "https://x/v1", Key: "sk-123", Model: "m1"}
+	if err := s.SaveWithSpec(tool, "p", want); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := s.GetSpec("fake", "p")
+	if !ok || got != want {
+		t.Errorf("GetSpec = %+v, ok=%v; want %+v", got, ok, want)
+	}
+	// A plain Save records no spec.
+	_ = s.Save(tool, "plain", "", "")
+	if _, ok := s.GetSpec("fake", "plain"); ok {
+		t.Error("plain Save should not record a spec")
+	}
+}
+
 func TestRemoveProfile(t *testing.T) {
 	dir := t.TempDir()
 	tool, cfg, _ := fakeTool(dir)
