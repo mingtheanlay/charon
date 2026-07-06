@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
@@ -11,6 +12,15 @@ import (
 func home() string {
 	h, _ := os.UserHomeDir()
 	return h
+}
+
+// claudeContextWindow returns the window to pin for a Claude model (200K), else 0.
+// Conservative: avoids the 1M beta window; OpenAI slugs Codex already sizes itself.
+func claudeContextWindow(model string) int {
+	if strings.Contains(strings.ToLower(model), "claude") {
+		return 200_000
+	}
+	return 0
 }
 
 // newCodex describes the OpenAI Codex CLI (~/.codex).
@@ -25,15 +35,12 @@ func newCodex() *Tool {
 		Provider:        "openai",
 		DefaultEndpoint: "https://api.openai.com/v1",
 		Artifacts: []Artifact{
-			// config.toml holds the inline bearer token, so keep it private.
-			NewFile("config.toml", configPath, 0o600),
+			NewFile("config.toml", configPath, 0o600), // holds the inline bearer token
 			NewFile("auth.json", authPath, 0o600),
 		},
 		ApplyAuth: func(a AuthSpec) error {
-			// Register a custom OpenAI-compatible provider and point Codex at it.
-			// Codex's env_key reads the key from a runtime env var, so instead we
-			// embed it inline via experimental_bearer_token to be self-contained.
-			// auth.json (ChatGPT OAuth) is left untouched.
+			// Register a self-contained OpenAI-compatible provider (key embedded inline)
+			// and point Codex at it; auth.json (ChatGPT OAuth) is left untouched.
 			cfg, err := loadTOMLMap(configPath)
 			if err != nil {
 				return err
@@ -41,15 +48,24 @@ func newCodex() *Tool {
 			if a.Model != "" {
 				cfg["model"] = a.Model
 			}
+			// Codex sizes unknown (non-OpenAI) slugs at 272K > Claude's real 200K and overruns
+			// the context; pin the window for Claude models, clearing any stale prior value.
+			delete(cfg, "model_context_window")
+			if w := claudeContextWindow(a.Model); w != 0 {
+				cfg["model_context_window"] = w
+			}
 			cfg["model_provider"] = "charon"
 			providers := subMap(cfg, "model_providers")
+			original := snapshotProviders(providers) // guard: write may only touch "charon"
 			providers["charon"] = map[string]any{
 				"name":     "charon",
 				"base_url": a.Endpoint,
-				// Codex removed "chat" in Feb 2026; "responses" is the only
-				// supported wire API. See openai/codex discussion #7782.
+				// "responses" is the only wire API since Codex dropped "chat" (openai/codex #7782).
 				"wire_api":                  "responses",
 				"experimental_bearer_token": a.Key,
+			}
+			if err := ensureOnlyCharonChanged(original, providers); err != nil {
+				return err
 			}
 			return writeTOMLMap(configPath, cfg, 0o600)
 		},
@@ -98,13 +114,7 @@ func newCodex() *Tool {
 				}
 			}
 
-			if info.Endpoint == "" {
-				info.Endpoint = "api.openai.com (default)"
-			}
-			if info.AuthMode == "" {
-				info.AuthMode = "none"
-			}
-			return info, nil
+			return info.withDefaults("api.openai.com (default)"), nil
 		},
 	}
 }

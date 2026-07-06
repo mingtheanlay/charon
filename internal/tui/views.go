@@ -2,8 +2,7 @@ package tui
 
 import "fmt"
 
-// statusRender styles a status line for the given level, prefixing a glyph.
-// It returns "" for an empty message so callers can append unconditionally.
+// statusRender styles a status line for the level (glyph-prefixed); "" for an empty message.
 func statusRender(level statusLevel, msg string) string {
 	if msg == "" {
 		return ""
@@ -49,9 +48,8 @@ func (m model) View() string {
 	return out
 }
 
-// wizardHeader renders the titled bar and "Step n of N" progress line shown
-// atop add-flow screens. It returns just a leading blank line for non-wizard
-// input steps (edit-single-field, quick-save) that have no progress.
+// wizardHeader renders the titled bar and "Step n of N" line for add-flow screens
+// (just a blank line for non-wizard input steps).
 func (m model) wizardHeader() string {
 	n, total, label := wizardStep(m.view)
 	if total == 0 {

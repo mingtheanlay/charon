@@ -11,8 +11,7 @@ import (
 
 const claudeKeychainService = "Claude Code-credentials"
 
-// newClaude describes Anthropic's Claude Code CLI. Endpoint/API key live in
-// ~/.claude/settings.json (env block); OAuth logins live in the macOS keychain.
+// newClaude describes Claude Code: API keys in ~/.claude/settings.json, OAuth in the keychain.
 func newClaude() *Tool {
 	settingsPath := filepath.Join(home(), ".claude", "settings.json")
 
@@ -22,34 +21,42 @@ func newClaude() *Tool {
 		Provider:        "anthropic",
 		DefaultEndpoint: "https://api.anthropic.com",
 		Artifacts: []Artifact{
-			// settings.json may hold a Bearer token for a custom endpoint.
-			NewFile("settings.json", settingsPath, 0o600),
+			NewFile("settings.json", settingsPath, 0o600), // may hold a Bearer token
 			NewKeychain("credentials", claudeKeychainService, os.Getenv("USER")),
 		},
 		ApplyAuth: func(a AuthSpec) error {
-			// settings.json may hold a Bearer token, so keep it private (0600).
 			s, err := loadJSONMap(settingsPath)
 			if err != nil {
 				return err
 			}
 			env := subMap(s, "env")
-			// Start from a clean auth slate so we never send conflicting headers.
+			// Clear every auth key so we never send conflicting headers or a stale base URL.
 			delete(env, "ANTHROPIC_API_KEY")
 			delete(env, "ANTHROPIC_AUTH_TOKEN")
+			delete(env, "ANTHROPIC_BASE_URL")
+			delete(env, "ANTHROPIC_MODEL")
 
 			custom := a.Endpoint != "" && !strings.Contains(a.Endpoint, "api.anthropic.com")
-			if a.Endpoint != "" {
-				env["ANTHROPIC_BASE_URL"] = a.Endpoint
-			}
 			if custom {
-				// Third-party gateways expect Authorization: Bearer <token>.
+				// Gateways want Bearer auth at a custom base URL.
+				env["ANTHROPIC_BASE_URL"] = normalizeClaudeBaseURL(a.Endpoint)
 				env["ANTHROPIC_AUTH_TOKEN"] = a.Key
+				// Gateway models aren't in Claude Code's catalog; the top-level "model"
+				// selector validates against it and rejects them, so route via ANTHROPIC_MODEL.
+				delete(s, "model")
+				if a.Model != "" {
+					env["ANTHROPIC_MODEL"] = a.Model
+				}
 			} else {
-				// Anthropic's own API uses the x-api-key header.
+				// Anthropic's own API uses x-api-key. Leave ANTHROPIC_BASE_URL unset: pointing it
+				// at the default endpoint makes Claude Code treat it as a gateway and break connectors.
 				env["ANTHROPIC_API_KEY"] = a.Key
-			}
-			if a.Model != "" {
-				s["model"] = a.Model // top-level "model" is preferred over env
+				// Pre-approve the key (and un-disable it) so a prior "No" can't leave it ignored.
+				approveClaudeAPIKey(s, a.Key)
+				// Stock models are in the catalog, so the top-level selector is preferred.
+				if a.Model != "" {
+					s["model"] = a.Model
+				}
 			}
 			return writeJSONMap(settingsPath, s, 0o600)
 		},
@@ -93,13 +100,73 @@ func newClaude() *Tool {
 				}
 			}
 
-			if info.Endpoint == "" {
-				info.Endpoint = "api.anthropic.com (default)"
-			}
-			if info.AuthMode == "" {
-				info.AuthMode = "none"
-			}
-			return info, nil
+			return info.withDefaults("api.anthropic.com (default)"), nil
 		},
 	}
+}
+
+// normalizeClaudeBaseURL trims a trailing "/v1": Claude appends "/v1/messages", so a
+// "/v1" base URL 404s as "/v1/v1/messages". (Claude-only; Codex genuinely wants "/v1".)
+func normalizeClaudeBaseURL(ep string) string {
+	ep = strings.TrimRight(ep, "/")
+	ep = strings.TrimSuffix(ep, "/v1")
+	return strings.TrimRight(ep, "/")
+}
+
+// claudeKeyID is how Claude Code identifies a key: its last 20 characters.
+func claudeKeyID(key string) string {
+	if len(key) <= 20 {
+		return key
+	}
+	return key[len(key)-20:]
+}
+
+// approveClaudeAPIKey marks key approved and un-disabled in customApiKeyResponses,
+// so Claude Code stops prompting and a prior rejection can't keep it switched off.
+func approveClaudeAPIKey(s map[string]any, key string) {
+	if key == "" {
+		return
+	}
+	id := claudeKeyID(key)
+	resp := subMap(s, "customApiKeyResponses")
+
+	resp["approved"] = addString(toStringSlice(resp["approved"]), id)
+	resp["disabled"] = removeString(toStringSlice(resp["disabled"]), id)
+}
+
+// toStringSlice coerces a JSON-decoded []any (or []string) into a []string.
+func toStringSlice(v any) []string {
+	switch t := v.(type) {
+	case []string:
+		return t
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, e := range t {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func addString(list []string, s string) []string {
+	for _, e := range list {
+		if e == s {
+			return list
+		}
+	}
+	return append(list, s)
+}
+
+func removeString(list []string, s string) []string {
+	out := list[:0]
+	for _, e := range list {
+		if e != s {
+			out = append(out, e)
+		}
+	}
+	return out
 }

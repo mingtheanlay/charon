@@ -12,8 +12,7 @@ import (
 // ErrKeychainMissing is returned when the requested item does not exist.
 var ErrKeychainMissing = errors.New("keychain item not found")
 
-// KeychainRead returns the generic-password value stored under service.
-// It returns ErrKeychainMissing when there is no such item.
+// KeychainRead returns the value under service, or ErrKeychainMissing if absent.
 func KeychainRead(service string) (string, error) {
 	cmd := exec.Command("security", "find-generic-password", "-s", service, "-w")
 	var out, errb bytes.Buffer

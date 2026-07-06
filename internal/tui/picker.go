@@ -14,8 +14,7 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
-// minLoadDuration is the floor the loading screen stays up, so a fast fetch
-// still reads as a deliberate step instead of flickering past.
+// minLoadDuration is the floor the loading screen stays up so a fast fetch doesn't flicker.
 const minLoadDuration = 2 * time.Second
 
 // fetchedMsg carries the async result of a models.Fetch call.
@@ -24,8 +23,7 @@ type fetchedMsg struct {
 	err  error
 }
 
-// minLoadElapsedMsg fires when the min-load window closes on an early result
-// parked in model.pending.
+// minLoadElapsedMsg fires when the min-load window closes on a result parked in model.pending.
 type minLoadElapsedMsg struct{}
 
 func fetchModelsCmd(provider, endpoint, key string) tea.Cmd {
@@ -35,8 +33,7 @@ func fetchModelsCmd(provider, endpoint, key string) tea.Cmd {
 	}
 }
 
-// loadingMessages are the playful lines shown while fetching. One is picked at
-// random per fetch to keep the wait light — several nod to Charon the ferryman.
+// loadingMessages are playful lines shown while fetching, one picked at random per fetch.
 var loadingMessages = []string{
 	"fetching models, almost there…",
 	"ferrying your request across the Styx…",
@@ -54,9 +51,7 @@ func randomLoadingMsg() string {
 	return loadingMessages[rand.Intn(len(loadingMessages))]
 }
 
-// beginFetch switches to the loading screen and kicks off a model fetch: it
-// arms the min-load throttle, picks a fresh loading line, and starts both the
-// spinner animation and the network request.
+// beginFetch shows the loading screen and starts the throttle, spinner, and model fetch.
 func (m *model) beginFetch() tea.Cmd {
 	m.view = viewFetching
 	m.fetchStart = time.Now()
@@ -66,8 +61,7 @@ func (m *model) beginFetch() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, fetchModelsCmd(m.tool.Provider, m.wiz.endpoint, m.wiz.key))
 }
 
-// applyFetched acts on a fetch result once the min-load window has elapsed,
-// moving to the model picker on success or recovering gracefully on error.
+// applyFetched moves to the model picker on success, or recovers gracefully on error.
 func (m model) applyFetched(msg fetchedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		if m.fromForm {
@@ -95,8 +89,7 @@ func (m model) applyFetched(msg fetchedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// filterModels fuzzy-matches query against all model ids, returning them ranked
-// best-first. An empty query returns the full list unchanged.
+// filterModels fuzzy-matches query against model ids, ranked best-first (empty = all).
 func filterModels(all []string, query string) []string {
 	q := strings.TrimSpace(query)
 	if q == "" {
@@ -117,9 +110,8 @@ func (m *model) showModels(ids []string) {
 	m.renderModels()
 }
 
-// renderModels rebuilds the picker rows from allModels filtered by the current
-// query. There is no visible filter input: typing narrows the list in place and
-// the active query is echoed in the title. A trailing "skip" row is always kept.
+// renderModels rebuilds the picker rows for the current query (echoed in the title),
+// always keeping a trailing "skip" row.
 func (m *model) renderModels() {
 	ids := filterModels(m.allModels, m.modelFilter)
 	var items []list.Item
@@ -137,8 +129,7 @@ func (m *model) renderModels() {
 	items = append(items, item{title: skipTitle, desc: "", value: skipModel})
 	m.list.SetDelegate(themedCompactDelegate())
 	m.list.SetItems(items)
-	// No search: land on the checked row (current model, or skip when unset).
-	// While searching, ranked-best-first puts the target on top.
+	// No search: land on the checked row; while searching, the best match is on top.
 	selectedIndex := 0
 	if m.modelFilter == "" {
 		if m.wiz.model == "" {
@@ -161,9 +152,8 @@ func (m *model) renderModels() {
 	m.setHelpKeys(keyChoose, keyFilter, keyRefresh, keyBack)
 }
 
-// updatePickModel drives the model picker. Printable keys build a fuzzy-search
-// query in place (no visible input); ctrl+r refetches the list; navigation keys
-// fall through to the list; enter/esc choose or cancel.
+// updatePickModel drives the picker: printable keys search, ctrl+r refetches,
+// nav keys fall through to the list, enter/esc choose or cancel.
 func (m model) updatePickModel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyCtrlC:

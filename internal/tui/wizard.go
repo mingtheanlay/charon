@@ -27,9 +27,7 @@ type wizard struct {
 	edit                 bool   // true = overwrite an existing profile
 }
 
-// wizardStep maps an add-flow view to its 1-based step index, the total number
-// of steps, and a short label. total is 0 for views with no progress indicator
-// (edit and non-wizard screens).
+// wizardStep maps an add-flow view to its step index, total, and label (total 0 = no progress).
 func wizardStep(v view) (n, total int, label string) {
 	switch v {
 	case viewAddEndpoint:
@@ -222,8 +220,7 @@ func (m model) updateConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// finishAdd writes the wizard's endpoint/key/model into the tool's live config
-// and snapshots it as the named profile.
+// finishAdd applies the wizard's endpoint/key/model and snapshots it as the named profile.
 func (m model) finishAdd(name string) (tea.Model, tea.Cmd) {
 	spec := profile.Spec{Endpoint: m.wiz.endpoint, Key: m.wiz.key, Model: m.wiz.model}
 	if err := m.store.AddProfile(m.tool, name, spec); err != nil {

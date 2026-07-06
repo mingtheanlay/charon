@@ -2,8 +2,7 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// bannerHeight is the number of terminal rows banner() renders, so the list
-// below it can be sized correctly.
+// bannerHeight is the number of terminal rows banner() renders.
 const bannerHeight = 8
 
 // bannerArt is the CHARON wordmark (ANSI Shadow figlet style).

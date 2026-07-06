@@ -1,5 +1,4 @@
-// Package models queries an AI provider's HTTP API for the list of models
-// available to a given endpoint + key.
+// Package models queries a provider's API for the models available to an endpoint + key.
 package models
 
 import (
@@ -21,8 +20,7 @@ const OpenAI Provider = "openai"
 // Anthropic uses GET {base}/v1/models with x-api-key + anthropic-version headers.
 const Anthropic Provider = "anthropic"
 
-// modelsURL turns a user-supplied endpoint into the models-list URL, tolerating
-// bases given with or without a trailing "/v1".
+// modelsURL builds the models-list URL from an endpoint, with or without a trailing "/v1".
 func modelsURL(endpoint string) string {
 	base := strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	if base == "" {

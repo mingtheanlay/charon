@@ -67,8 +67,7 @@ func (i item) Title() string       { return i.title }
 func (i item) Description() string { return i.desc }
 func (i item) FilterValue() string { return i.title }
 
-// Contextual key bindings for the list's help footer. As bindings (not baked
-// into the title) the themed footer can show them and "?" can expand them.
+// Contextual key bindings shown in the list's help footer (and "?"-expanded).
 var (
 	keySwitch = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch"))
 	keyEdit   = key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit"))
@@ -77,14 +76,12 @@ var (
 	keyBack   = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))
 	keyOpen   = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open"))
 	keyChoose = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "choose"))
-	// keyFilter's key never matches a real press — it exists only to advertise
-	// the type-to-search behaviour of the model picker in the help footer.
+	// keyFilter never matches a real press; it only advertises type-to-search.
 	keyFilter  = key.NewBinding(key.WithKeys("\x00filter"), key.WithHelp("type", "search"))
 	keyRefresh = key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "refresh"))
 )
 
-// exampleEndpoint is shown as placeholder text so we never prefill (or reveal)
-// a real endpoint value in the input.
+// exampleEndpoint is placeholder text; a real endpoint is never prefilled.
 const exampleEndpoint = "https://api.example.com/v1"
 
 type model struct {
@@ -125,8 +122,7 @@ func (m *model) clearStatus() {
 	m.statusLvl = statusInfo
 }
 
-// findTool returns the registered tool with the given name, or nil, scanning the
-// registry built once in newModel rather than rebuilding it each lookup.
+// findTool returns the registered tool with the given name, or nil.
 func (m *model) findTool(name string) *tools.Tool {
 	for _, t := range m.allTools {
 		if t.Name == name {
@@ -173,8 +169,7 @@ func newModel(store *profile.Store) model {
 	return m
 }
 
-// setHelpKeys registers the contextual key bindings shown in the list's help
-// footer (short form) and its "?"-expanded full form.
+// setHelpKeys registers the contextual bindings shown in the list's help footer.
 func (m *model) setHelpKeys(bindings ...key.Binding) {
 	m.list.AdditionalShortHelpKeys = func() []key.Binding { return bindings }
 	m.list.AdditionalFullHelpKeys = func() []key.Binding { return bindings }
@@ -189,8 +184,7 @@ func (m model) inputView() bool {
 	return false
 }
 
-// selectByValue moves the list cursor to the row whose value matches v. A miss
-// (including v == "") leaves the default selection in place.
+// selectByValue moves the cursor to the row matching v; a miss keeps the default.
 func (m *model) selectByValue(v string) {
 	if v == "" {
 		return
@@ -234,8 +228,7 @@ func (m *model) loadProfiles() {
 	saved := m.store.List(m.tool.Name)
 	selectedIndex := 0
 	for i, name := range saved {
-		// One line per profile: a leading ✓ marks the active one, and any saved
-		// label is appended inline after the name.
+		// One line per profile: ✓ marks the active one; any label is appended.
 		title := name
 		if man, err := m.store.LoadManifest(m.tool.Name, name); err == nil && man.Label != "" {
 			title += " — " + man.Label
@@ -270,8 +263,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fetchedMsg:
-		// Hold a too-fast result until the min-load window elapses so the loading
-		// screen never flickers past. A slow fetch skips the wait entirely.
+		// Hold a too-fast result until minLoadDuration so the loading screen never flickers.
 		if elapsed := time.Since(m.fetchStart); elapsed < minLoadDuration {
 			m.pending = &msg
 			return m, tea.Tick(minLoadDuration-elapsed, func(time.Time) tea.Msg { return minLoadElapsedMsg{} })
@@ -295,8 +287,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyMsg:
-		// ctrl+d quits only on a second consecutive press; any other key disarms
-		// it. Handled before per-view dispatch so it works from every screen.
+		// ctrl+d quits only on a second consecutive press; any other key disarms it.
 		if msg.Type == tea.KeyCtrlD {
 			return m.onQuit()
 		}
@@ -368,8 +359,7 @@ func (m *model) startInput(placeholder string, password bool) {
 	m.input.Focus()
 }
 
-// onQuit arms the two-step quit: the first ctrl+d prompts for confirmation, the
-// second (with no intervening key) actually exits.
+// onQuit arms the two-step quit: first ctrl+d confirms, a second one exits.
 func (m model) onQuit() (tea.Model, tea.Cmd) {
 	if m.quitting {
 		return m, tea.Quit

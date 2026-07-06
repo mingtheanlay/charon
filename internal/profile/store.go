@@ -1,5 +1,5 @@
-// Package profile stores named snapshots of each tool's auth surface and
-// applies them, with automatic backups and an always-available "original".
+// Package profile stores and applies named snapshots of each tool's auth surface,
+// with automatic backups and an always-available "original".
 package profile
 
 import (
@@ -16,16 +16,15 @@ import (
 // OriginalName is the reserved profile capturing config as first seen by charon.
 const OriginalName = "original"
 
-// Spec is the endpoint/key/model a profile was created from, recorded so the
-// edit form can prefill its fields without re-parsing tool configs.
+// Spec is the endpoint/key/model a profile was created from, so the edit form can prefill.
 type Spec struct {
 	Endpoint string `json:"endpoint,omitempty"`
 	Key      string `json:"key,omitempty"`
 	Model    string `json:"model,omitempty"`
 }
 
-// Manifest records metadata about a stored profile and which artifacts it
-// contained (an artifact absent from the snapshot is restored by removal).
+// Manifest records a stored profile's metadata and which artifacts it contained
+// (an absent artifact is restored by removal).
 type Manifest struct {
 	Label     string          `json:"label"`
 	Note      string          `json:"note,omitempty"`
@@ -43,8 +42,7 @@ type config struct {
 	Active map[string]string `json:"active"` // tool name -> profile name
 }
 
-// Open returns the store rooted at $XDG_CONFIG_HOME/charon (defaulting to
-// ~/.config/charon), keeping it alongside the tools' own config directories.
+// Open returns the store rooted at $XDG_CONFIG_HOME/charon (default ~/.config/charon).
 func Open() (*Store, error) {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
@@ -93,8 +91,7 @@ func (s *Store) setActive(tool, name string) error {
 	return s.writeConfig(c)
 }
 
-// SetActiveName marks a profile active without applying files (used right after
-// Save, when the live config already matches the profile).
+// SetActiveName marks a profile active without applying files (used right after Save).
 func (s *Store) SetActiveName(tool, name string) error { return s.setActive(tool, name) }
 
 // List returns stored profile names for a tool, "original" first.
@@ -168,15 +165,13 @@ func (s *Store) Save(t *tools.Tool, name, label, note string) error {
 	return snapshot(t, s.profDir(t.Name, name), label, note, nil)
 }
 
-// SaveWithSpec is like Save but also records the endpoint/key/model the profile
-// was built from, so it can later be edited.
+// SaveWithSpec is Save plus the endpoint/key/model the profile was built from, for editing.
 func (s *Store) SaveWithSpec(t *tools.Tool, name string, spec Spec) error {
 	return snapshot(t, s.profDir(t.Name, name), name, "", &spec)
 }
 
-// AddProfile writes spec into the tool's live config via ApplyAuth, snapshots it
-// as the named profile, and marks it active. It is the shared core of the CLI
-// `add` command and the interactive add/edit flow, so the two can't drift.
+// AddProfile applies spec via ApplyAuth, snapshots it as the named profile, and marks it
+// active. Shared by the CLI `add` command and the interactive add/edit flow so they can't drift.
 func (s *Store) AddProfile(t *tools.Tool, name string, spec Spec) error {
 	if t.ApplyAuth == nil {
 		return fmt.Errorf("%s does not support add", t.Title)
@@ -199,8 +194,7 @@ func (s *Store) GetSpec(tool, name string) (Spec, bool) {
 	return *m.Spec, true
 }
 
-// EnsureOriginal captures the pristine "original" profile the first time a
-// detected tool is seen, so reverting is always possible.
+// EnsureOriginal captures the "original" profile the first time a tool is seen, so revert always works.
 func (s *Store) EnsureOriginal(t *tools.Tool) error {
 	if s.Exists(t.Name, OriginalName) {
 		return nil
@@ -217,8 +211,7 @@ func (s *Store) EnsureOriginal(t *tools.Tool) error {
 	return nil
 }
 
-// Apply restores a stored profile over the tool's live config, backing up the
-// current state first. It marks the profile active on success.
+// Apply restores a stored profile over the live config (backing up current first) and marks it active.
 func (s *Store) Apply(t *tools.Tool, name string) (backupDir string, err error) {
 	if !s.Exists(t.Name, name) {
 		return "", fmt.Errorf("profile %q not found for %s", name, t.Name)

@@ -6,8 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Charon palette, built around the brand teal #377375, plus a small set of
-// semantic feedback colors so successes, errors, and cautions read distinctly.
+// Charon palette: brand teal #377375 plus semantic feedback colors.
 var (
 	colorPrimary = lipgloss.Color("#377375") // brand teal
 	colorAccent  = lipgloss.Color("#5aa6a3") // lighter teal for highlights
@@ -54,8 +53,7 @@ func newSpinner() spinner.Model {
 	return s
 }
 
-// themedDelegate is the list delegate styled to the Charon palette with a
-// modest one-line gap between rows.
+// themedDelegate is the list delegate in the Charon palette, with a one-line row gap.
 func themedDelegate() list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
 	d.SetSpacing(1)
@@ -74,9 +72,7 @@ func themedDelegate() list.DefaultDelegate {
 	return d
 }
 
-// themedCompactDelegate is the same palette rendered one line per row (no
-// description, no inter-row gap) for dense lists like profiles and the model
-// picker, where a two-line row makes the selection cursor feel oversized.
+// themedCompactDelegate is the same palette at one line per row, for dense lists.
 func themedCompactDelegate() list.DefaultDelegate {
 	d := themedDelegate()
 	d.ShowDescription = false

@@ -1,13 +1,28 @@
-// Package tools models the AI CLIs (Codex, Claude, OpenCode) whose endpoint
-// and credentials charon can snapshot and switch between.
+// Package tools models the AI CLIs whose endpoint + credentials charon snapshots.
 package tools
 
-// Info is a display-friendly summary of a tool's current live configuration.
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// Info is a display-friendly summary of a tool's live configuration.
 type Info struct {
 	Endpoint string // base URL / host in use
 	AuthMode string // "oauth", "chatgpt", "api", or "none"
-	Secret   string // raw secret, used only for masking; never persisted here
+	Secret   string // raw secret, for masking only; never persisted here
 	Model    string // active model, if known
+}
+
+// withDefaults fills empty Endpoint/AuthMode with display fallbacks.
+func (i Info) withDefaults(endpoint string) Info {
+	if i.Endpoint == "" {
+		i.Endpoint = endpoint
+	}
+	if i.AuthMode == "" {
+		i.AuthMode = "none"
+	}
+	return i
 }
 
 // AuthSpec is a new endpoint + API key + model to write into a tool's config.
@@ -17,23 +32,16 @@ type AuthSpec struct {
 	Model    string
 }
 
-// Tool describes one AI CLI: the files/keychain entries that make up its auth
-// surface, plus how to summarize and reconfigure it.
+// Tool describes one AI CLI's auth surface and how to summarize/reconfigure it.
 type Tool struct {
-	Name      string // stable id, e.g. "codex"
-	Title     string // display name, e.g. "Codex"
-	Artifacts []Artifact
-	// Provider selects the model-list wire format ("openai" or "anthropic").
-	Provider string
-	// DefaultEndpoint is prefilled when adding a profile.
-	DefaultEndpoint string
-	// Detected reports whether the tool appears installed/configured.
-	Detected func() bool
-	// Describe reads the live config into an Info for display.
-	Describe func() (Info, error)
-	// ApplyAuth writes a new endpoint/key/model into the live config so it can
-	// then be snapshotted as a profile.
-	ApplyAuth func(AuthSpec) error
+	Name            string // stable id, e.g. "codex"
+	Title           string // display name, e.g. "Codex"
+	Artifacts       []Artifact
+	Provider        string               // model-list wire format: "openai" or "anthropic"
+	DefaultEndpoint string               // prefilled when adding a profile
+	Detected        func() bool          // is the tool installed/configured?
+	Describe        func() (Info, error) // read live config into an Info
+	ApplyAuth       func(AuthSpec) error // write endpoint/key/model into live config
 }
 
 // All returns the supported tools in a stable display order.
@@ -41,8 +49,7 @@ func All() []*Tool {
 	return []*Tool{newCodex(), newClaude(), newOpenCode()}
 }
 
-// ResolveEndpoint returns ep, or the tool's DefaultEndpoint when ep is empty,
-// so callers can accept a blank endpoint as "use the provider default".
+// ResolveEndpoint returns ep, or DefaultEndpoint when ep is empty.
 func (t *Tool) ResolveEndpoint(ep string) string {
 	if ep == "" {
 		return t.DefaultEndpoint
@@ -55,6 +62,37 @@ func Find(name string) *Tool {
 	for _, t := range All() {
 		if t.Name == name {
 			return t
+		}
+	}
+	return nil
+}
+
+// managedProvider is the only provider entry charon owns; all others are the user's.
+const managedProvider = "charon"
+
+// snapshotProviders records the JSON of every provider but charon's, for later comparison.
+func snapshotProviders(providers map[string]any) map[string]string {
+	snap := map[string]string{}
+	for name, v := range providers {
+		if name == managedProvider {
+			continue
+		}
+		b, _ := json.Marshal(v)
+		snap[name] = string(b)
+	}
+	return snap
+}
+
+// ensureOnlyCharonChanged errors if the write would delete or edit any user provider.
+func ensureOnlyCharonChanged(original map[string]string, providers map[string]any) error {
+	for name, want := range original {
+		v, ok := providers[name]
+		if !ok {
+			return fmt.Errorf("refusing to write config: would delete provider %q", name)
+		}
+		b, _ := json.Marshal(v)
+		if string(b) != want {
+			return fmt.Errorf("refusing to write config: would modify provider %q", name)
 		}
 	}
 	return nil

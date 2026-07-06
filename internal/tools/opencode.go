@@ -6,11 +6,23 @@ import (
 	"path/filepath"
 )
 
-// newOpenCode describes the OpenCode CLI. Config (providers/baseURL) lives in
-// ~/.config/opencode/opencode.json; credentials in
-// ~/.local/share/opencode/auth.json (per-provider api key or oauth).
+// opencodeConfigPath returns the existing config (opencode.jsonc, else legacy
+// opencode.json) so charon edits it in place, defaulting to opencode.jsonc.
+func opencodeConfigPath() string {
+	dir := filepath.Join(home(), ".config", "opencode")
+	for _, name := range []string{"opencode.jsonc", "opencode.json"} {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return filepath.Join(dir, "opencode.jsonc")
+}
+
+// newOpenCode describes OpenCode: providers in ~/.config/opencode/opencode.jsonc,
+// credentials in ~/.local/share/opencode/auth.json.
 func newOpenCode() *Tool {
-	configPath := filepath.Join(home(), ".config", "opencode", "opencode.json")
+	configPath := opencodeConfigPath()
 	authPath := filepath.Join(home(), ".local", "share", "opencode", "auth.json")
 
 	return &Tool{
@@ -19,14 +31,13 @@ func newOpenCode() *Tool {
 		Provider:        "openai",
 		DefaultEndpoint: "https://api.openai.com/v1",
 		Artifacts: []Artifact{
-			// opencode.json holds options.apiKey, so keep it private.
-			NewFile("opencode.json", configPath, 0o600),
+			// The config holds provider options.apiKey, so keep it private.
+			NewFile(filepath.Base(configPath), configPath, 0o600), // holds options.apiKey
 			NewFile("auth.json", authPath, 0o600),
 		},
 		ApplyAuth: func(a AuthSpec) error {
-			// Register an OpenAI-compatible provider "charon" directly in the
-			// config. OpenCode needs the key in options.apiKey and a non-empty
-			// models map for the models to appear in /models.
+			// Register a "charon" provider: OpenCode needs options.apiKey and a
+			// non-empty models map for the models to show in /models.
 			cfg, err := loadJSONMap(configPath)
 			if err != nil {
 				return err
@@ -35,6 +46,8 @@ func newOpenCode() *Tool {
 				cfg["$schema"] = "https://opencode.ai/config.json"
 			}
 			provider := subMap(cfg, "provider")
+			original := snapshotProviders(provider) // guard: write may only touch "charon"
+
 			options := map[string]any{"baseURL": a.Endpoint}
 			if a.Key != "" {
 				options["apiKey"] = a.Key
@@ -49,6 +62,11 @@ func newOpenCode() *Tool {
 				cfg["model"] = "charon/" + a.Model
 			}
 			provider["charon"] = entry
+
+			// Fail loudly rather than risk clobbering a user-authored provider.
+			if err := ensureOnlyCharonChanged(original, provider); err != nil {
+				return err
+			}
 			return writeJSONMap(configPath, cfg, 0o600)
 		},
 		Detected: func() bool {
@@ -110,13 +128,7 @@ func newOpenCode() *Tool {
 				}
 			}
 
-			if info.Endpoint == "" {
-				info.Endpoint = "(provider default)"
-			}
-			if info.AuthMode == "" {
-				info.AuthMode = "none"
-			}
-			return info, nil
+			return info.withDefaults("(provider default)"), nil
 		},
 	}
 }

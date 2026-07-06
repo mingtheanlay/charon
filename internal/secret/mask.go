@@ -1,8 +1,7 @@
 // Package secret handles masking of sensitive values and platform keychains.
 package secret
 
-// Mask returns a display-safe version of a secret, keeping only a short
-// prefix and suffix so profiles can be told apart without leaking the key.
+// Mask returns a display-safe secret, keeping only a short prefix and suffix.
 func Mask(s string) string {
 	if s == "" {
 		return ""
