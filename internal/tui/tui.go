@@ -60,9 +60,21 @@ func fetchModelsCmd(provider, endpoint, key string) tea.Cmd {
 }
 
 var (
-	titleStyle  = lipgloss.NewStyle().Bold(true).Padding(0, 1)
-	statusStyle = lipgloss.NewStyle().Faint(true).Padding(0, 1)
+	titleStyle  = lipgloss.NewStyle().Bold(true)
+	statusStyle = lipgloss.NewStyle().Faint(true)
 )
+
+// compactDelegate is the default list delegate with the inter-item blank line
+// and extra left padding removed, so rows sit tight together.
+func compactDelegate() list.DefaultDelegate {
+	d := list.NewDefaultDelegate()
+	d.SetSpacing(0)
+	d.Styles.NormalTitle = d.Styles.NormalTitle.Padding(0, 0, 0, 1)
+	d.Styles.NormalDesc = d.Styles.NormalDesc.Padding(0, 0, 0, 1)
+	d.Styles.SelectedTitle = d.Styles.SelectedTitle.Padding(0, 0, 0, 1)
+	d.Styles.SelectedDesc = d.Styles.SelectedDesc.Padding(0, 0, 0, 1)
+	return d
+}
 
 type wizard struct {
 	endpoint, key, model string
@@ -94,10 +106,12 @@ func (m *model) resize() {
 }
 
 func newModel(store *profile.Store) model {
-	l := list.New(nil, list.NewDefaultDelegate(), 0, 0)
+	l := list.New(nil, compactDelegate(), 0, 0)
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(false)
 	l.Styles.Title = titleStyle
+	// Trim the list's own vertical padding around the title.
+	l.Styles.TitleBar = l.Styles.TitleBar.Padding(0, 0, 1, 0)
 
 	ti := textinput.New()
 	ti.CharLimit = 200
