@@ -34,10 +34,11 @@ checksum:
 brews:
   - name: charon
     repository:
-      # Create this repo first: github.com/<YOUR_GH_USERNAME>/homebrew-tap
-      owner: <YOUR_GH_USERNAME>
+      owner: mingtheanlay
       name: homebrew-tap
-    homepage: "https://github.com/<YOUR_GH_USERNAME>/ai-env-switcher"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    folder: Formula
+    homepage: "https://github.com/mingtheanlay/charon"
     description: "Detect and switch endpoint + credentials for Codex, Claude Code and OpenCode"
     license: "MIT"
     # Sanity check that the installed binary runs.
@@ -46,5 +47,5 @@ brews:
 
 release:
   github:
-    owner: <YOUR_GH_USERNAME>
-    name: ai-env-switcher
+    owner: mingtheanlay
+    name: charon
