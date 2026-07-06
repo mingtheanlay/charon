@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"charon/internal/secret"
 )
@@ -21,23 +22,36 @@ func newClaude() *Tool {
 		Provider:        "anthropic",
 		DefaultEndpoint: "https://api.anthropic.com",
 		Artifacts: []Artifact{
-			NewFile("settings.json", settingsPath, 0o644),
+			// settings.json may hold a Bearer token for a custom endpoint.
+			NewFile("settings.json", settingsPath, 0o600),
 			NewKeychain("credentials", claudeKeychainService, os.Getenv("USER")),
 		},
 		ApplyAuth: func(a AuthSpec) error {
+			// settings.json may hold a Bearer token, so keep it private (0600).
 			s, err := loadJSONMap(settingsPath)
 			if err != nil {
 				return err
 			}
 			env := subMap(s, "env")
+			// Start from a clean auth slate so we never send conflicting headers.
+			delete(env, "ANTHROPIC_API_KEY")
+			delete(env, "ANTHROPIC_AUTH_TOKEN")
+
+			custom := a.Endpoint != "" && !strings.Contains(a.Endpoint, "api.anthropic.com")
 			if a.Endpoint != "" {
 				env["ANTHROPIC_BASE_URL"] = a.Endpoint
 			}
-			env["ANTHROPIC_API_KEY"] = a.Key
-			if a.Model != "" {
-				env["ANTHROPIC_MODEL"] = a.Model
+			if custom {
+				// Third-party gateways expect Authorization: Bearer <token>.
+				env["ANTHROPIC_AUTH_TOKEN"] = a.Key
+			} else {
+				// Anthropic's own API uses the x-api-key header.
+				env["ANTHROPIC_API_KEY"] = a.Key
 			}
-			return writeJSONMap(settingsPath, s, 0o644)
+			if a.Model != "" {
+				s["model"] = a.Model // top-level "model" is preferred over env
+			}
+			return writeJSONMap(settingsPath, s, 0o600)
 		},
 		Detected: func() bool {
 			if _, err := os.Stat(settingsPath); err == nil {
@@ -51,7 +65,8 @@ func newClaude() *Tool {
 
 			if data, err := os.ReadFile(settingsPath); err == nil {
 				var s struct {
-					Env struct {
+					Model string `json:"model"`
+					Env   struct {
 						BaseURL   string `json:"ANTHROPIC_BASE_URL"`
 						APIKey    string `json:"ANTHROPIC_API_KEY"`
 						AuthToken string `json:"ANTHROPIC_AUTH_TOKEN"`
@@ -60,11 +75,14 @@ func newClaude() *Tool {
 				}
 				if json.Unmarshal(data, &s) == nil {
 					info.Endpoint = s.Env.BaseURL
-					info.Model = s.Env.Model
-					if s.Env.APIKey != "" {
+					info.Model = s.Model
+					if info.Model == "" {
+						info.Model = s.Env.Model
+					}
+					if s.Env.AuthToken != "" {
+						info.Secret, info.AuthMode = s.Env.AuthToken, "api (bearer)"
+					} else if s.Env.APIKey != "" {
 						info.Secret, info.AuthMode = s.Env.APIKey, "api"
-					} else if s.Env.AuthToken != "" {
-						info.Secret, info.AuthMode = s.Env.AuthToken, "api"
 					}
 				}
 			}
