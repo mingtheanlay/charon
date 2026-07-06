@@ -41,6 +41,15 @@ func All() []*Tool {
 	return []*Tool{newCodex(), newClaude(), newOpenCode()}
 }
 
+// ResolveEndpoint returns ep, or the tool's DefaultEndpoint when ep is empty,
+// so callers can accept a blank endpoint as "use the provider default".
+func (t *Tool) ResolveEndpoint(ep string) string {
+	if ep == "" {
+		return t.DefaultEndpoint
+	}
+	return ep
+}
+
 // Find returns the tool with the given name, or nil.
 func Find(name string) *Tool {
 	for _, t := range All() {

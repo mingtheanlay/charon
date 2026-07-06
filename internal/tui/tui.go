@@ -771,10 +771,7 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case viewAddEndpoint:
-			if val == "" {
-				val = m.tool.DefaultEndpoint // blank accepts the provider default
-			}
-			m.wiz.endpoint = val
+			m.wiz.endpoint = m.tool.ResolveEndpoint(val) // blank accepts the provider default
 			m.view = viewAddKey
 			m.startInput("API key", true)
 			return m, textinput.Blink
@@ -805,14 +802,10 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // finishAdd writes the wizard's endpoint/key/model into the tool's live config
 // and snapshots it as the named profile.
 func (m model) finishAdd(name string) (tea.Model, tea.Cmd) {
-	spec := tools.AuthSpec{Endpoint: m.wiz.endpoint, Key: m.wiz.key, Model: m.wiz.model}
-	if err := m.tool.ApplyAuth(spec); err != nil {
+	spec := profile.Spec{Endpoint: m.wiz.endpoint, Key: m.wiz.key, Model: m.wiz.model}
+	if err := m.store.AddProfile(m.tool, name, spec); err != nil {
 		m.setStatus(statusErr, err.Error())
-	} else if err := m.store.SaveWithSpec(m.tool, name,
-		profile.Spec{Endpoint: m.wiz.endpoint, Key: m.wiz.key, Model: m.wiz.model}); err != nil {
-		m.setStatus(statusErr, "saved config but failed to record profile: "+err.Error())
 	} else {
-		_ = m.store.SetActiveName(m.tool.Name, name)
 		verb := "Added"
 		if m.wiz.edit {
 			verb = "Updated"

@@ -168,11 +168,7 @@ func cmdModels(args []string) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	ep := *endpoint
-	if ep == "" {
-		ep = t.DefaultEndpoint
-	}
-	list, err := models.Fetch(models.Provider(t.Provider), ep, *key)
+	list, err := models.Fetch(models.Provider(t.Provider), t.ResolveEndpoint(*endpoint), *key)
 	if err != nil {
 		return err
 	}
@@ -204,18 +200,12 @@ func cmdAdd(store *profile.Store, args []string) error {
 	if *name == "" || *key == "" {
 		return fmt.Errorf("--name and --key are required")
 	}
-	ep := *endpoint
-	if ep == "" {
-		ep = t.DefaultEndpoint
-	}
-	if err := t.ApplyAuth(tools.AuthSpec{Endpoint: ep, Key: *key, Model: *model}); err != nil {
-		return err
-	}
-	if err := store.SaveWithSpec(t, *name, profile.Spec{Endpoint: ep, Key: *key, Model: *model}); err != nil {
+	ep := t.ResolveEndpoint(*endpoint)
+	if err := store.AddProfile(t, *name, profile.Spec{Endpoint: ep, Key: *key, Model: *model}); err != nil {
 		return err
 	}
 	fmt.Printf("Added and activated %s profile %q (%s · %s)\n", t.Title, *name, ep, *model)
-	return store.SetActiveName(t.Name, *name)
+	return nil
 }
 
 func cmdRemove(store *profile.Store, args []string) error {
