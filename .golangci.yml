@@ -12,8 +12,6 @@ linters:
     - ineffassign   # unused assignments
     - staticcheck   # broad static analysis
     - unused        # unused code
-    - gofmt         # formatting
-    - goimports     # import grouping
     - misspell      # common misspellings
     - revive        # style/lint rules
     - unconvert     # redundant conversions
@@ -39,3 +37,9 @@ linters:
       - path: _test\.go
         linters:
           - errcheck
+
+# v2: gofmt and goimports are formatters, not linters — they live here
+formatters:
+  enable:
+    - gofmt         # formatting
+    - goimports     # import grouping
