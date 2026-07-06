@@ -52,15 +52,15 @@ func TestTOMLMapRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m["model_provider"] = "aies"
+	m["model_provider"] = "custom"
 	providers := subMap(m, "model_providers")
-	providers["aies"] = map[string]any{"base_url": "http://x"}
+	providers["custom"] = map[string]any{"base_url": "http://x"}
 	if err := writeTOMLMap(path, m, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	got, _ := loadTOMLMap(path)
-	if got["model"] != "gpt-5.5" || got["model_provider"] != "aies" {
+	if got["model"] != "gpt-5.5" || got["model_provider"] != "custom" {
 		t.Errorf("round trip lost data: %#v", got)
 	}
 	feat, _ := got["features"].(map[string]any)

@@ -71,7 +71,7 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 		perm = 0o600
 	}
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".aies-*")
+	tmp, err := os.CreateTemp(dir, ".charon-*")
 	if err != nil {
 		return err
 	}

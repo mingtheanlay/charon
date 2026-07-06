@@ -1,4 +1,4 @@
-// Package tui provides the interactive arrow-key menu for aies.
+// Package tui provides the interactive arrow-key menu for charon.
 package tui
 
 import (
