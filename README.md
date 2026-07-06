@@ -2,6 +2,13 @@
   <img src="assets/logo.svg" alt="Charon" width="640">
 </p>
 
+<p align="center">
+  <a href="https://github.com/mingtheanlay/charon/releases/latest"><img src="https://img.shields.io/github/v/release/mingtheanlay/charon?style=flat-square&color=6c47ff" alt="Latest Release"></a>
+  <a href="https://github.com/mingtheanlay/charon/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mingtheanlay/charon/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/mingtheanlay/charon?style=flat-square" alt="MIT License"></a>
+  <a href="https://github.com/mingtheanlay/charon/issues"><img src="https://img.shields.io/github/issues/mingtheanlay/charon?style=flat-square" alt="Open Issues"></a>
+</p>
+
 # Charon
 
 A small Go CLI that detects the **Codex**, **Claude Code**, and **OpenCode**
@@ -31,9 +38,6 @@ Running `charon` opens an interactive menu behind this banner:
 
 ## Supported operating systems
 
-Requires **Go 1.24+** to build. Pure Go with no cgo, so it cross-compiles
-freely.
-
 | OS | Status | Notes |
 |----|--------|-------|
 | **macOS** (darwin) | ✅ Fully supported | Reads/writes Claude Code's OAuth token via the macOS Keychain (`security`). Primary tested platform. |
@@ -43,32 +47,67 @@ freely.
 Keychain support is compiled in per-platform (`keychain_darwin.go` vs.
 `keychain_other.go`), so non-macOS builds simply skip it.
 
-## Install (build from source)
+---
 
-One command — checks for Go, builds a versioned binary, and installs it onto
-your PATH (`~/.local/bin` by default, no sudo):
+## Install
+
+### Option 1 — Homebrew (macOS & Linux, recommended)
 
 ```sh
-./install.sh
-# or choose a location:
-PREFIX=/usr/local ./install.sh
+brew tap mingtheanlay/tap
+brew install charon
 ```
 
-Or use the Makefile:
+To upgrade later:
 
 ```sh
+brew upgrade charon
+```
+
+### Option 2 — Download a pre-built binary
+
+Grab the latest binary for your platform from the
+[**Releases page**](https://github.com/mingtheanlay/charon/releases/latest):
+
+| Platform | Archive |
+|----------|---------|
+| macOS (Apple Silicon) | `charon_darwin_arm64.tar.gz` |
+| macOS (Intel) | `charon_darwin_amd64.tar.gz` |
+| Linux (x86-64) | `charon_linux_amd64.tar.gz` |
+| Linux (ARM64) | `charon_linux_arm64.tar.gz` |
+
+```sh
+# Example for macOS Apple Silicon
+curl -L https://github.com/mingtheanlay/charon/releases/latest/download/charon_darwin_arm64.tar.gz | tar xz
+sudo mv charon /usr/local/bin/
+```
+
+Each release includes a `checksums.txt` — verify with:
+
+```sh
+shasum -a 256 -c checksums.txt
+```
+
+### Option 3 — Build from source
+
+Requires **Go 1.24+**.
+
+```sh
+# Quick install to ~/.local/bin (no sudo)
+./install.sh
+
+# Or choose a custom prefix
+PREFIX=/usr/local ./install.sh
+
+# Or use the Makefile
 make install          # build + install to ~/.local/bin
 make build            # just build ./charon here
-make run              # build and open the interactive menu
-make uninstall        # remove the installed binary
-PREFIX=/usr/local make install
-```
 
-Plain build:
-
-```sh
+# Or plain go build
 go build -o charon ./cmd/charon
 ```
+
+---
 
 ## Use
 
@@ -121,6 +160,8 @@ different endpoint/key, `charon save codex proxy`, then hop between them with
 `restore` always returns to the pristine config captured the first time charon
 ran.
 
+---
+
 ## How it works
 
 - **Storage:** `~/.config/charon/` (`$XDG_CONFIG_HOME` respected).
@@ -138,6 +179,8 @@ Profiles are stored **unencrypted** on disk (mode 0600), including any OAuth
 token copied out of the macOS Keychain. Keep `~/.config/charon` private; a future
 version can push secrets back into the Keychain instead.
 
+---
+
 ## Layout
 
 ```
@@ -147,6 +190,8 @@ internal/profile/    snapshot store, apply, backups
 internal/tui/        bubbletea interactive menu
 internal/secret/     masking + macOS keychain access
 ```
+
+---
 
 ## Development
 
@@ -162,8 +207,26 @@ and golangci-lint on Linux and macOS. Contributor and agent conventions —
 including the rule to **always sandbox `HOME` when testing so real credentials
 are never touched** — live in [AGENTS.md](AGENTS.md).
 
-## Not done yet (next steps)
+---
 
-- `aies undo <tool>` to restore the most recent auto-backup.
-- Optional `--verify` post-switch auth ping.
-- Homebrew distribution (a `.goreleaser.yaml` is included for later).
+## Contributing & Feedback
+
+**PRs and issues are very welcome.** This is an early project and there's a lot
+of room to grow — your ideas and bug reports genuinely shape where it goes next.
+
+### Ways to help
+
+- 🐛 **Found a bug?** [Open an issue](https://github.com/mingtheanlay/charon/issues/new) with the tool name, OS, and what you expected vs. what happened.
+- 💡 **Have an idea?** [Start a discussion](https://github.com/mingtheanlay/charon/issues/new) — new tool support, UX tweaks, anything is fair game.
+- 🔧 **Want to send a fix or feature?** Fork → branch → PR. Run `make fmt && make test` before pushing. See [AGENTS.md](AGENTS.md) for the conventions.
+
+No contribution is too small — a typo fix or a one-line doc improvement is just as appreciated as a new feature.
+
+### Planned next steps
+
+- `charon undo <tool>` — restore the most recent auto-backup.
+- Optional `--verify` post-switch auth ping to confirm the credentials actually work.
+- Windows Keychain / Credential Manager support.
+- Support for more AI CLI tools.
+
+If any of these matter to you, comment on the relevant issue or open a new one — it helps prioritise.
