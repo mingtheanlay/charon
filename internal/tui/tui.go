@@ -1,20 +1,25 @@
 // Package tui provides the interactive arrow-key menu for charon.
+//
+// The model is split across a few files in this package:
+//   - tui.go     the model, lifecycle (Run/Init/Update) and top-level navigation
+//   - views.go   rendering (View, wizard header, prompts, status line)
+//   - wizard.go  the add/edit profile flow and confirm-delete prompt
+//   - picker.go  the fetch-and-choose-a-model screen
 package tui
 
 import (
 	"fmt"
-	"strings"
+	"time"
 
-	"charon/internal/models"
 	"charon/internal/profile"
 	"charon/internal/secret"
 	"charon/internal/tools"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/sahilm/fuzzy"
 )
 
 // Run starts the interactive menu against the given store.
@@ -48,30 +53,9 @@ const (
 	statusErr                     // failure (red)
 )
 
-// statusRender styles a status line for the given level, prefixing a glyph.
-// It returns "" for an empty message so callers can append unconditionally.
-func statusRender(level statusLevel, msg string) string {
-	if msg == "" {
-		return ""
-	}
-	switch level {
-	case statusOK:
-		return successStyle.Render("✓ " + msg)
-	case statusErr:
-		return errorStyle.Render("✗ " + msg)
-	default:
-		return statusStyle.Render(msg)
-	}
-}
-
 const (
 	addSentinel = "\x00add"     // the "add new" list row
 	skipModel   = "\x00nomodel" // the "skip model" list row
-	fieldName   = "\x00name"
-	fieldURL    = "\x00url"
-	fieldToken  = "\x00token"
-	fieldModel  = "\x00model"
-	fieldSave   = "\x00save"
 )
 
 type item struct {
@@ -83,9 +67,8 @@ func (i item) Title() string       { return i.title }
 func (i item) Description() string { return i.desc }
 func (i item) FilterValue() string { return i.title }
 
-// Contextual key bindings surfaced in the list's help footer. Defining them as
-// bindings (rather than baking them into the title) lets the themed footer show
-// them and lets "?" expand the full list.
+// Contextual key bindings for the list's help footer. As bindings (not baked
+// into the title) the themed footer can show them and "?" can expand them.
 var (
 	keySwitch = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch"))
 	keyEdit   = key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit"))
@@ -100,49 +83,13 @@ var (
 	keyRefresh = key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "refresh"))
 )
 
-// wizardStep maps an add-flow view to its 1-based step index, the total number
-// of steps, and a short label. total is 0 for views with no progress indicator
-// (edit and non-wizard screens).
-func wizardStep(v view) (n, total int, label string) {
-	switch v {
-	case viewAddEndpoint:
-		return 1, 4, "API base URL"
-	case viewAddKey:
-		return 2, 4, "API key"
-	case viewFetching, viewPickModel:
-		return 3, 4, "choose a model"
-	case viewAddName:
-		return 4, 4, "name the profile"
-	}
-	return 0, 0, ""
-}
-
-// fetchedMsg carries the async result of a models.Fetch call.
-type fetchedMsg struct {
-	list []string
-	err  error
-}
-
-func fetchModelsCmd(provider, endpoint, key string) tea.Cmd {
-	return func() tea.Msg {
-		l, err := models.Fetch(models.Provider(provider), endpoint, key)
-		return fetchedMsg{list: l, err: err}
-	}
-}
-
-type wizard struct {
-	endpoint, key, model string
-	name                 string // target profile name when editing
-	origName             string // pre-edit name, to clean up on rename
-	edit                 bool   // true = overwrite an existing profile
-}
-
 // exampleEndpoint is shown as placeholder text so we never prefill (or reveal)
 // a real endpoint value in the input.
 const exampleEndpoint = "https://api.example.com/v1"
 
 type model struct {
 	store     *profile.Store
+	allTools  []*tools.Tool // registry built once; reused across renders
 	view      view
 	list      list.Model
 	input     textinput.Model
@@ -152,6 +99,11 @@ type model struct {
 	fromForm  bool   // model picker/fetch was launched from the edit form
 	delTarget string // profile name pending delete confirmation
 	quitting  bool   // ctrl+d pressed once; a second press quits
+
+	spinner    spinner.Model
+	loadingMsg string      // playful line shown on the loading screen, picked per fetch
+	pending    *fetchedMsg // fetch result held back until the min-load window elapses
+	fetchStart time.Time   // when the current fetch began, for the min-load throttle
 
 	allModels   []string // full fetched model list, unfiltered
 	modelFilter string   // current type-to-search query in the model picker
@@ -171,6 +123,17 @@ func (m *model) setStatus(level statusLevel, msg string) {
 func (m *model) clearStatus() {
 	m.status = ""
 	m.statusLvl = statusInfo
+}
+
+// findTool returns the registered tool with the given name, or nil, scanning the
+// registry built once in newModel rather than rebuilding it each lookup.
+func (m *model) findTool(name string) *tools.Tool {
+	for _, t := range m.allTools {
+		if t.Name == name {
+			return t
+		}
+	}
+	return nil
 }
 
 // resize sizes the list, reserving space for the banner on the tools screen.
@@ -205,7 +168,7 @@ func newModel(store *profile.Store) model {
 	ti.Cursor.Style = ti.Cursor.Style.Foreground(colorAccent)
 	ti.PlaceholderStyle = ti.PlaceholderStyle.Foreground(colorMuted)
 
-	m := model{store: store, view: viewTools, list: l, input: ti}
+	m := model{store: store, allTools: tools.All(), view: viewTools, list: l, input: ti, spinner: newSpinner()}
 	m.loadTools()
 	return m
 }
@@ -226,40 +189,6 @@ func (m model) inputView() bool {
 	return false
 }
 
-// loadEditForm populates the field picker from the working wizard values.
-func (m *model) loadEditForm() {
-	token := "(none)"
-	if m.wiz.key != "" {
-		token = secret.Mask(m.wiz.key)
-	}
-	modelVal := m.wiz.model
-	if modelVal == "" {
-		modelVal = "(none)"
-	}
-	endpoint := m.wiz.endpoint
-	if endpoint == "" {
-		endpoint = "(none)"
-	}
-	m.list.SetDelegate(themedDelegate()) // two-line rows show each field's value
-	m.list.SetItems([]list.Item{
-		item{title: "Name", desc: m.wiz.name, value: fieldName},
-		item{title: "URL", desc: endpoint, value: fieldURL},
-		item{title: "Token", desc: token, value: fieldToken},
-		item{title: "Model", desc: modelVal + "  (enter to fetch & pick)", value: fieldModel},
-		item{title: "✓ Save changes", desc: "apply and switch to this profile", value: fieldSave},
-	})
-	m.list.Title = fmt.Sprintf("Edit %s / %s", m.tool.Title, m.wiz.name)
-	// A fresh entry (no field targeted) starts on the first row; otherwise keep
-	// the cursor on the field just visited so diving into a field (or the model
-	// picker) and coming back lands on that row, not the first one.
-	m.list.Select(0)
-	m.selectByValue(m.editField)
-	m.setHelpKeys(
-		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit field")),
-		keyBack,
-	)
-}
-
 // selectByValue moves the list cursor to the row whose value matches v. A miss
 // (including v == "") leaves the default selection in place.
 func (m *model) selectByValue(v string) {
@@ -277,7 +206,7 @@ func (m *model) selectByValue(v string) {
 func (m *model) loadTools() {
 	var items []list.Item
 	selectedIndex := 0
-	for i, t := range tools.All() {
+	for i, t := range m.allTools {
 		desc := "not installed — see the README to set it up"
 		if t.Detected != nil && t.Detected() {
 			info, _ := t.Describe()
@@ -331,73 +260,6 @@ func (m *model) loadProfiles() {
 	}
 }
 
-// filterModels fuzzy-matches query against all model ids, returning them ranked
-// best-first. An empty query returns the full list unchanged.
-func filterModels(all []string, query string) []string {
-	q := strings.TrimSpace(query)
-	if q == "" {
-		return all
-	}
-	matches := fuzzy.Find(q, all)
-	out := make([]string, len(matches))
-	for i, mt := range matches {
-		out[i] = mt.Str
-	}
-	return out
-}
-
-// showModels installs a freshly fetched model list and resets the search query.
-func (m *model) showModels(ids []string) {
-	m.allModels = ids
-	m.modelFilter = ""
-	m.renderModels()
-}
-
-// renderModels rebuilds the picker rows from allModels filtered by the current
-// query. There is no visible filter input: typing narrows the list in place and
-// the active query is echoed in the title. A trailing "skip" row is always kept.
-func (m *model) renderModels() {
-	ids := filterModels(m.allModels, m.modelFilter)
-	var items []list.Item
-	for _, id := range ids {
-		title := id
-		if id == m.wiz.model {
-			title = "✓ " + id // mark the profile's currently selected model
-		}
-		items = append(items, item{title: title, desc: "", value: id})
-	}
-	skipTitle := "(skip — no model override)"
-	if m.wiz.model == "" {
-		skipTitle = "✓ " + skipTitle
-	}
-	items = append(items, item{title: skipTitle, desc: "", value: skipModel})
-	m.list.SetDelegate(themedCompactDelegate())
-	m.list.SetItems(items)
-	// With no active search, land the cursor on the checked row — the current
-	// model, or the skip row when there's no override. Once a query is typed,
-	// ranked-best-first means the top row is the target.
-	selectedIndex := 0
-	if m.modelFilter == "" {
-		if m.wiz.model == "" {
-			selectedIndex = len(ids) // the trailing skip row
-		} else {
-			for i, id := range ids {
-				if id == m.wiz.model {
-					selectedIndex = i
-					break
-				}
-			}
-		}
-	}
-	m.list.Select(selectedIndex)
-	title := m.tool.Title + " — choose a model"
-	if m.modelFilter != "" {
-		title += fmt.Sprintf(" · search: %s (%d)", m.modelFilter, len(ids))
-	}
-	m.list.Title = title
-	m.setHelpKeys(keyChoose, keyFilter, keyRefresh, keyBack)
-}
-
 func (m model) Init() tea.Cmd { return nil }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -408,35 +270,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fetchedMsg:
-		if msg.err != nil {
-			if m.fromForm {
-				// Stay on the edit form; keep the existing model value.
-				m.fromForm = false
-				m.setStatus(statusErr, msg.err.Error())
-				m.view = viewEditForm
-				m.loadEditForm()
-				return m, nil
-			}
-			// Model list unavailable; proceed without a model override.
-			m.wiz.model = ""
-			if m.wiz.edit {
-				m.setStatus(statusErr, msg.err.Error())
-				return m.finishAdd(m.wiz.name)
-			}
-			m.setStatus(statusErr, msg.err.Error()+" — you can name it without a model")
-			m.view = viewAddName
-			m.startInput("profile name", false)
-			return m, textinput.Blink
+		// Hold a too-fast result until the min-load window elapses so the loading
+		// screen never flickers past. A slow fetch skips the wait entirely.
+		if elapsed := time.Since(m.fetchStart); elapsed < minLoadDuration {
+			m.pending = &msg
+			return m, tea.Tick(minLoadDuration-elapsed, func(time.Time) tea.Msg { return minLoadElapsedMsg{} })
 		}
-		m.view = viewPickModel
-		m.setStatus(statusInfo, fmt.Sprintf("%d models found", len(msg.list)))
-		m.showModels(msg.list)
-		return m, nil
+		return m.applyFetched(msg)
+
+	case minLoadElapsedMsg:
+		if m.pending == nil {
+			return m, nil
+		}
+		result := *m.pending
+		m.pending = nil
+		return m.applyFetched(result)
+
+	case spinner.TickMsg:
+		if m.view != viewFetching {
+			return m, nil // ignore stray ticks once we've left the loading screen
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 
 	case tea.KeyMsg:
-		// ctrl+d quits, but only on a second consecutive press ("press again to
-		// quit"). Any other key disarms the pending quit. Handled before the
-		// per-view dispatch so it works from every screen, inputs included.
+		// ctrl+d quits only on a second consecutive press; any other key disarms
+		// it. Handled before per-view dispatch so it works from every screen.
 		if msg.Type == tea.KeyCtrlD {
 			return m.onQuit()
 		}
@@ -519,72 +379,6 @@ func (m model) onQuit() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateConfirmDelete handles the y/n prompt guarding profile deletion.
-func (m model) updateConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "y", "Y":
-		name := m.delTarget
-		m.delTarget = ""
-		m.view = viewProfiles
-		if err := m.store.Remove(m.tool.Name, name); err != nil {
-			m.setStatus(statusErr, err.Error())
-		} else {
-			m.setStatus(statusOK, "Deleted "+name)
-		}
-		m.loadProfiles()
-		return m, nil
-	case "n", "N", "esc", "q":
-		m.delTarget = ""
-		m.view = viewProfiles
-		m.setStatus(statusInfo, "cancelled")
-		m.loadProfiles()
-		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
-	}
-	return m, nil
-}
-
-// updatePickModel drives the model picker. Printable keys build a fuzzy-search
-// query in place (no visible input); ctrl+r refetches the list; navigation keys
-// fall through to the list; enter/esc choose or cancel.
-func (m model) updatePickModel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyCtrlC:
-		return m, tea.Quit
-	case tea.KeyEsc:
-		return m.onEsc()
-	case tea.KeyEnter:
-		return m.onEnter()
-	case tea.KeyCtrlR:
-		if m.wiz.endpoint == "" || m.wiz.key == "" {
-			m.setStatus(statusInfo, "set URL and token first, then refresh")
-			return m, nil
-		}
-		m.view = viewFetching
-		m.setStatus(statusInfo, "Refreshing models…")
-		return m, fetchModelsCmd(m.tool.Provider, m.wiz.endpoint, m.wiz.key)
-	case tea.KeyBackspace:
-		if r := []rune(m.modelFilter); len(r) > 0 {
-			m.modelFilter = string(r[:len(r)-1])
-			m.renderModels()
-		}
-		return m, nil
-	case tea.KeyRunes:
-		m.modelFilter += string(msg.Runes)
-		m.renderModels()
-		return m, nil
-	case tea.KeySpace:
-		m.modelFilter += " "
-		m.renderModels()
-		return m, nil
-	}
-	// Arrows, page keys, home/end, ctrl+n/ctrl+p: let the list move the cursor.
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
-}
-
 func (m model) onEsc() (tea.Model, tea.Cmd) {
 	switch m.view {
 	case viewProfiles:
@@ -620,7 +414,7 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 	}
 	switch m.view {
 	case viewTools:
-		t := tools.Find(it.value)
+		t := m.findTool(it.value)
 		if t == nil || t.Detected == nil || !t.Detected() {
 			m.setStatus(statusInfo, it.title+" isn't installed yet — see the README to set it up")
 			return m, nil
@@ -674,223 +468,4 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	}
 	return m, nil
-}
-
-// onEditFormSelect handles a chosen row in the edit field-picker.
-func (m model) onEditFormSelect(field string) (tea.Model, tea.Cmd) {
-	switch field {
-	case fieldName:
-		m.editField = field
-		m.view = viewEditField
-		m.startInput("profile name", false)
-		m.input.SetValue(m.wiz.name)
-		return m, textinput.Blink
-	case fieldURL:
-		m.editField = field
-		m.view = viewEditField
-		m.startInput(exampleEndpoint, false)
-		m.input.SetValue(m.wiz.endpoint)
-		return m, textinput.Blink
-	case fieldToken:
-		m.editField = field
-		m.view = viewEditField
-		m.startInput("API key", true)
-		m.input.SetValue(m.wiz.key)
-		return m, textinput.Blink
-	case fieldModel:
-		m.editField = fieldModel
-		if m.wiz.endpoint == "" || m.wiz.key == "" {
-			m.setStatus(statusInfo, "set URL and token first, then fetch models")
-			return m, nil
-		}
-		m.fromForm = true
-		m.view = viewFetching
-		m.setStatus(statusInfo, "Fetching models…")
-		return m, fetchModelsCmd(m.tool.Provider, m.wiz.endpoint, m.wiz.key)
-	case fieldSave:
-		return m.finishAdd(m.wiz.name)
-	}
-	return m, nil
-}
-
-func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		if m.view == viewEditField {
-			m.view = viewEditForm // cancel a single field → back to the form
-			m.loadEditForm()
-			return m, nil
-		}
-		m.view = viewProfiles
-		m.setStatus(statusInfo, "cancelled")
-		m.loadProfiles()
-		return m, nil
-	case "enter":
-		val := m.input.Value()
-		switch m.view {
-		case viewEditField:
-			refetch := false
-			switch m.editField {
-			case fieldName:
-				if val != "" {
-					m.wiz.name = val
-				}
-			case fieldURL:
-				if m.wiz.endpoint != val {
-					m.wiz.endpoint = val
-					refetch = true
-				}
-			case fieldToken:
-				if m.wiz.key != val {
-					m.wiz.key = val
-					refetch = true
-				}
-			}
-			if refetch && m.wiz.endpoint != "" && m.wiz.key != "" {
-				m.fromForm = true
-				m.view = viewFetching
-				m.setStatus(statusInfo, "Fetching models…")
-				return m, fetchModelsCmd(m.tool.Provider, m.wiz.endpoint, m.wiz.key)
-			}
-			m.view = viewEditForm
-			m.loadEditForm()
-			return m, nil
-
-		case viewSaveName:
-			if val == "" {
-				m.setStatus(statusInfo, "name required")
-				return m, nil
-			}
-			if err := m.store.Save(m.tool, val, val, ""); err != nil {
-				m.setStatus(statusErr, err.Error())
-			} else {
-				m.setStatus(statusOK, "Saved current config as "+val)
-			}
-			m.view = viewProfiles
-			m.loadProfiles()
-			return m, nil
-
-		case viewAddEndpoint:
-			m.wiz.endpoint = m.tool.ResolveEndpoint(val) // blank accepts the provider default
-			m.view = viewAddKey
-			m.startInput("API key", true)
-			return m, textinput.Blink
-
-		case viewAddKey:
-			if val == "" {
-				m.setStatus(statusInfo, "key required")
-				return m, nil
-			}
-			m.wiz.key = val
-			m.view = viewFetching
-			m.setStatus(statusInfo, "Fetching models…")
-			return m, fetchModelsCmd(m.tool.Provider, m.wiz.endpoint, m.wiz.key)
-
-		case viewAddName:
-			if val == "" {
-				m.setStatus(statusInfo, "name required")
-				return m, nil
-			}
-			return m.finishAdd(val)
-		}
-	}
-	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
-	return m, cmd
-}
-
-// finishAdd writes the wizard's endpoint/key/model into the tool's live config
-// and snapshots it as the named profile.
-func (m model) finishAdd(name string) (tea.Model, tea.Cmd) {
-	spec := profile.Spec{Endpoint: m.wiz.endpoint, Key: m.wiz.key, Model: m.wiz.model}
-	if err := m.store.AddProfile(m.tool, name, spec); err != nil {
-		m.setStatus(statusErr, err.Error())
-	} else {
-		verb := "Added"
-		if m.wiz.edit {
-			verb = "Updated"
-			// If the profile was renamed, remove the old one.
-			if m.wiz.origName != "" && m.wiz.origName != name {
-				_ = m.store.Remove(m.tool.Name, m.wiz.origName)
-			}
-		}
-		model := m.wiz.model
-		if model == "" {
-			model = "no model override"
-		}
-		m.setStatus(statusOK, fmt.Sprintf("%s %s (%s · %s)", verb, name, m.wiz.endpoint, model))
-	}
-	m.view = viewProfiles
-	m.loadProfiles()
-	return m, nil
-}
-
-func (m model) View() string {
-	switch m.view {
-	case viewConfirmDelete:
-		body := "\n" + titleStyle.Render(m.tool.Title+" · delete profile") +
-			"\n\n" + warnStyle.Render(fmt.Sprintf("Delete profile %q? This can't be undone.", m.delTarget)) +
-			"\n\n" + hintStyle.Render("y: delete · n / esc: cancel")
-		return body
-	case viewFetching:
-		return m.wizardHeader() +
-			promptStyle.Render("Fetching models from "+m.wiz.endpoint+" …") +
-			"\n\n" + hintStyle.Render("please wait")
-	case viewAddEndpoint, viewAddKey, viewAddName, viewSaveName, viewEditField:
-		body := m.wizardHeader() +
-			promptStyle.Render(m.prompt()) +
-			"\n\n  " + m.input.View() +
-			"\n\n" + hintStyle.Render("enter: continue · esc: cancel")
-		if line := statusRender(m.statusLvl, m.status); line != "" {
-			body += "\n" + line
-		}
-		return body
-	}
-	out := m.list.View()
-	if m.view == viewTools {
-		out = banner() + "\n" + out
-	}
-	if line := statusRender(m.statusLvl, m.status); line != "" {
-		out += "\n" + line
-	}
-	return out
-}
-
-// wizardHeader renders the titled bar and "Step n of N" progress line shown
-// atop add-flow screens. It returns just a leading blank line for non-wizard
-// input steps (edit-single-field, quick-save) that have no progress.
-func (m model) wizardHeader() string {
-	n, total, label := wizardStep(m.view)
-	if total == 0 {
-		return "\n"
-	}
-	title := titleStyle.Render(m.tool.Title + " · new profile")
-	step := stepStyle.Render(fmt.Sprintf("Step %d of %d · %s", n, total, label))
-	return "\n" + title + "\n" + step + "\n\n"
-}
-
-func (m model) prompt() string {
-	if m.view == viewEditField {
-		switch m.editField {
-		case fieldName:
-			return "Edit name:"
-		case fieldURL:
-			return "Edit API base URL:"
-		case fieldToken:
-			return "Edit API key (hidden):"
-		}
-	}
-	switch m.view {
-	case viewAddEndpoint:
-		if m.tool.DefaultEndpoint != "" {
-			return "API base URL — leave blank for the default (" + m.tool.DefaultEndpoint + "):"
-		}
-		return "API base URL:"
-	case viewAddKey:
-		return "API key — input is hidden as you type:"
-	case viewAddName:
-		return "Name this profile (e.g. work, openrouter-fast):"
-	default:
-		return "Save current " + m.tool.Title + " config as:"
-	}
 }

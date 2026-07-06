@@ -2,6 +2,7 @@ package tui
 
 import (
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -44,6 +45,14 @@ var (
 	// stepStyle labels wizard progress (e.g. "Step 2 of 4").
 	stepStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).PaddingLeft(1)
 )
+
+// newSpinner returns the accent-colored dot spinner shown on the loading screen.
+func newSpinner() spinner.Model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(colorAccent)
+	return s
+}
 
 // themedDelegate is the list delegate styled to the Charon palette with a
 // modest one-line gap between rows.
