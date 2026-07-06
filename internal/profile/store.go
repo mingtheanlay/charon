@@ -174,6 +174,22 @@ func (s *Store) SaveWithSpec(t *tools.Tool, name string, spec Spec) error {
 	return snapshot(t, s.profDir(t.Name, name), name, "", &spec)
 }
 
+// AddProfile writes spec into the tool's live config via ApplyAuth, snapshots it
+// as the named profile, and marks it active. It is the shared core of the CLI
+// `add` command and the interactive add/edit flow, so the two can't drift.
+func (s *Store) AddProfile(t *tools.Tool, name string, spec Spec) error {
+	if t.ApplyAuth == nil {
+		return fmt.Errorf("%s does not support add", t.Title)
+	}
+	if err := t.ApplyAuth(tools.AuthSpec{Endpoint: spec.Endpoint, Key: spec.Key, Model: spec.Model}); err != nil {
+		return err
+	}
+	if err := s.SaveWithSpec(t, name, spec); err != nil {
+		return fmt.Errorf("applied config but failed to record profile: %w", err)
+	}
+	return s.setActive(t.Name, name)
+}
+
 // GetSpec returns the recorded spec for a profile, if any.
 func (s *Store) GetSpec(tool, name string) (Spec, bool) {
 	m, err := s.LoadManifest(tool, name)
