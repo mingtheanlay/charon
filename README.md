@@ -64,7 +64,23 @@ To upgrade later:
 brew upgrade charon
 ```
 
-### Option 2 — Download a pre-built binary
+### Option 2 — Quick install (curl, Linux & macOS)
+
+No Go required — downloads the prebuilt binary for your platform, verifies its
+checksum, and installs it to `~/.local/bin`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mingtheanlay/charon/main/scripts/install.sh | sh
+```
+
+Install system-wide or pin a version with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mingtheanlay/charon/main/scripts/install.sh | PREFIX=/usr/local sh
+curl -fsSL https://raw.githubusercontent.com/mingtheanlay/charon/main/scripts/install.sh | VERSION=v1.2.3 sh
+```
+
+### Option 3 — Download a pre-built binary
 
 Grab the latest binary for your platform from the
 [**Releases page**](https://github.com/mingtheanlay/charon/releases/latest):
@@ -88,7 +104,7 @@ Each release includes a `checksums.txt` — verify with:
 shasum -a 256 -c checksums.txt
 ```
 
-### Option 3 — Build from source
+### Option 4 — Build from source
 
 Requires **Go 1.24+**.
 
