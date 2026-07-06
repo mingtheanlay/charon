@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="Charon" width="640">
+  <img src="assets/banner.png" alt="Charon" width="100%">
 </p>
 
 <p align="center">
