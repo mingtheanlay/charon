@@ -16,6 +16,14 @@ import (
 // OriginalName is the reserved profile capturing config as first seen by charon.
 const OriginalName = "original"
 
+// Spec is the endpoint/key/model a profile was created from, recorded so the
+// edit form can prefill its fields without re-parsing tool configs.
+type Spec struct {
+	Endpoint string `json:"endpoint,omitempty"`
+	Key      string `json:"key,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
 // Manifest records metadata about a stored profile and which artifacts it
 // contained (an artifact absent from the snapshot is restored by removal).
 type Manifest struct {
@@ -23,6 +31,7 @@ type Manifest struct {
 	Note      string          `json:"note,omitempty"`
 	CreatedAt time.Time       `json:"createdAt"`
 	Present   map[string]bool `json:"present"`
+	Spec      *Spec           `json:"spec,omitempty"`
 }
 
 // Store is rooted at ~/.config/aies.
@@ -129,7 +138,7 @@ func (s *Store) LoadManifest(tool, name string) (Manifest, error) {
 }
 
 // snapshot captures the tool's current live artifacts into dir.
-func snapshot(t *tools.Tool, dir string, label, note string) error {
+func snapshot(t *tools.Tool, dir string, label, note string, spec *Spec) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -146,7 +155,7 @@ func snapshot(t *tools.Tool, dir string, label, note string) error {
 			}
 		}
 	}
-	m := Manifest{Label: label, Note: note, CreatedAt: time.Now(), Present: present}
+	m := Manifest{Label: label, Note: note, CreatedAt: time.Now(), Present: present, Spec: spec}
 	data, _ := json.MarshalIndent(m, "", "  ")
 	return os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o600)
 }
@@ -156,7 +165,22 @@ func (s *Store) Save(t *tools.Tool, name, label, note string) error {
 	if label == "" {
 		label = name
 	}
-	return snapshot(t, s.profDir(t.Name, name), label, note)
+	return snapshot(t, s.profDir(t.Name, name), label, note, nil)
+}
+
+// SaveWithSpec is like Save but also records the endpoint/key/model the profile
+// was built from, so it can later be edited.
+func (s *Store) SaveWithSpec(t *tools.Tool, name string, spec Spec) error {
+	return snapshot(t, s.profDir(t.Name, name), name, "", &spec)
+}
+
+// GetSpec returns the recorded spec for a profile, if any.
+func (s *Store) GetSpec(tool, name string) (Spec, bool) {
+	m, err := s.LoadManifest(tool, name)
+	if err != nil || m.Spec == nil {
+		return Spec{}, false
+	}
+	return *m.Spec, true
 }
 
 // EnsureOriginal captures the pristine "original" profile the first time a
@@ -187,7 +211,7 @@ func (s *Store) Apply(t *tools.Tool, name string) (backupDir string, err error) 
 	// Back up current live state so the switch is reversible.
 	stamp := time.Now().Format("20060102-150405")
 	backupDir = filepath.Join(s.Root, "backups", t.Name, stamp)
-	if err := snapshot(t, backupDir, "auto-backup before switch to "+name, ""); err != nil {
+	if err := snapshot(t, backupDir, "auto-backup before switch to "+name, "", nil); err != nil {
 		return "", fmt.Errorf("backup failed, aborting: %w", err)
 	}
 

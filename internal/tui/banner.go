@@ -15,8 +15,8 @@ const bannerArt = ` ██████╗██╗  ██╗ █████╗
  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝`
 
 var (
-	bannerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#377375")).Bold(true)
-	taglineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Italic(true).PaddingLeft(1)
+	bannerStyle  = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
+	taglineStyle = lipgloss.NewStyle().Foreground(colorMuted).Italic(true).PaddingLeft(1)
 )
 
 // banner returns the styled splash shown atop the tool-selection screen.

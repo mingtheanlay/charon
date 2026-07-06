@@ -97,8 +97,10 @@ In the menu, drill into a tool and pick **＋ Add new profile…**. The wizard:
 5. names the profile — then writes the endpoint/key/model into the tool's live
    config and switches to it.
 
-Press **`e`** on an existing profile to **edit** it — the same wizard runs, keeps
-the profile's name, and overwrites its endpoint/key/model.
+Press **`e`** on an existing profile to open an **edit form** with its current
+**Name**, **URL**, **Token** (masked), and **Model**. Select any field to change
+it; selecting **Model** re-fetches the endpoint's model list so you can pick a
+new one. Choose **✓ Save changes** to apply (renaming is handled automatically).
 
 From then on it's just another profile you can `switch` between. The same flow
 non-interactively:
