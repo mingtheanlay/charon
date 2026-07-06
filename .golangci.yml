@@ -1,6 +1,7 @@
 # golangci-lint configuration. Run: golangci-lint run
 # version is required by golangci-lint v2+
 version: "2"
+
 run:
   timeout: 3m
 
@@ -18,21 +19,24 @@ linters:
     - unconvert     # redundant conversions
     - bodyclose     # unclosed HTTP response bodies
 
-linters-settings:
-  errcheck:
-    # Writes to stdout/stderr and tabwriter flushes are conventionally ignored.
-    exclude-functions:
-      - fmt.Print
-      - fmt.Printf
-      - fmt.Println
-      - fmt.Fprint
-      - fmt.Fprintf
-      - fmt.Fprintln
-      - (*text/tabwriter.Writer).Flush
+  # v2: linter-specific settings live under linters.settings (was linters-settings)
+  settings:
+    errcheck:
+      # Writes to stdout/stderr and tabwriter flushes are conventionally ignored.
+      exclude-functions:
+        - fmt.Print
+        - fmt.Printf
+        - fmt.Println
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*text/tabwriter.Writer).Flush
 
 issues:
-  exclude-rules:
-    # Test helpers may intentionally ignore errors for brevity.
-    - path: _test\.go
-      linters:
-        - errcheck
+  # v2: exclude-rules moved to issues.exclusions.rules
+  exclusions:
+    rules:
+      # Test helpers may intentionally ignore errors for brevity.
+      - path: _test\.go
+        linters:
+          - errcheck
