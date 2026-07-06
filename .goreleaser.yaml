@@ -34,7 +34,7 @@ checksum:
 brews:
   - name: charon
     repository:
-      owner: mtty
+      owner: mtty80
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/mingtheanlay/charon"
