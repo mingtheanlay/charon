@@ -88,13 +88,19 @@ charon rm <tool> <p>       # delete a profile
 
 In the menu, drill into a tool and pick **＋ Add new profile…**. The wizard:
 
-1. asks for the **API base URL** (prefilled with the provider default),
+1. asks for the **API base URL** (shown as a placeholder — leave blank to accept
+   the provider default; real values are never prefilled),
 2. asks for the **API key** (hidden input),
 3. **fetches the model list** from that endpoint (`GET /v1/models`, using
    `Authorization: Bearer` for OpenAI-style and `x-api-key` for Anthropic),
 4. lets you **pick a model** (or skip),
 5. names the profile — then writes the endpoint/key/model into the tool's live
    config and switches to it.
+
+Press **`e`** on an existing profile to open an **edit form** with its current
+**Name**, **URL**, **Token** (masked), and **Model**. Select any field to change
+it; selecting **Model** re-fetches the endpoint's model list so you can pick a
+new one. Choose **✓ Save changes** to apply (renaming is handled automatically).
 
 From then on it's just another profile you can `switch` between. The same flow
 non-interactively:

@@ -211,7 +211,7 @@ func cmdAdd(store *profile.Store, args []string) error {
 	if err := t.ApplyAuth(tools.AuthSpec{Endpoint: ep, Key: *key, Model: *model}); err != nil {
 		return err
 	}
-	if err := store.Save(t, *name, *name, ""); err != nil {
+	if err := store.SaveWithSpec(t, *name, profile.Spec{Endpoint: ep, Key: *key, Model: *model}); err != nil {
 		return err
 	}
 	fmt.Printf("Added and activated %s profile %q (%s · %s)\n", t.Title, *name, ep, *model)
