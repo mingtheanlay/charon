@@ -15,10 +15,11 @@ import (
 // Provider selects the wire format used to list models.
 type Provider string
 
-const (
-	OpenAI    Provider = "openai"    // GET {base}/models, Authorization: Bearer
-	Anthropic Provider = "anthropic" // GET {base}/models, x-api-key + anthropic-version
-)
+// OpenAI uses GET {base}/v1/models with an Authorization: Bearer header.
+const OpenAI Provider = "openai"
+
+// Anthropic uses GET {base}/v1/models with x-api-key + anthropic-version headers.
+const Anthropic Provider = "anthropic"
 
 // modelsURL turns a user-supplied endpoint into the models-list URL, tolerating
 // bases given with or without a trailing "/v1".
@@ -54,7 +55,7 @@ func Fetch(provider Provider, endpoint, key string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("API returned %s (check endpoint and key)", resp.Status)
 	}

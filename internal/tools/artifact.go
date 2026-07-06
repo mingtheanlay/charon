@@ -34,6 +34,7 @@ func NewFile(id, path string, perm os.FileMode) *FileArtifact {
 	return &FileArtifact{id: id, Path: path, Perm: perm}
 }
 
+// ID returns the stable, filesystem-safe name used to store this artifact.
 func (f *FileArtifact) ID() string { return f.id }
 
 func (f *FileArtifact) Read() ([]byte, bool, error) {
@@ -54,6 +55,7 @@ func (f *FileArtifact) Write(data []byte) error {
 	return atomicWrite(f.Path, data, f.Perm)
 }
 
+// Remove deletes the file; a missing file is not an error.
 func (f *FileArtifact) Remove() error {
 	err := os.Remove(f.Path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -74,14 +76,14 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
@@ -105,6 +107,7 @@ func NewKeychain(id, service, account string) *KeychainArtifact {
 	return &KeychainArtifact{id: id, Service: service, Account: account}
 }
 
+// ID returns the stable, filesystem-safe name used to store this artifact.
 func (k *KeychainArtifact) ID() string { return k.id }
 
 func (k *KeychainArtifact) Read() ([]byte, bool, error) {
@@ -122,6 +125,7 @@ func (k *KeychainArtifact) Write(data []byte) error {
 	return secret.KeychainWrite(k.Service, k.Account, string(data))
 }
 
+// Remove deletes the keychain entry; a missing entry is not an error.
 func (k *KeychainArtifact) Remove() error {
 	return secret.KeychainDelete(k.Service)
 }

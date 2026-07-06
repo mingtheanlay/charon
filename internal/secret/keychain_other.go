@@ -8,10 +8,10 @@ import "errors"
 var ErrKeychainMissing = errors.New("keychain item not found")
 
 // KeychainRead is unsupported off macOS; callers treat this as "absent".
-func KeychainRead(service string) (string, error) { return "", ErrKeychainMissing }
+func KeychainRead(_ string) (string, error) { return "", ErrKeychainMissing }
 
 // KeychainWrite is a no-op off macOS.
-func KeychainWrite(service, account, value string) error { return nil }
+func KeychainWrite(_, _, _ string) error { return nil }
 
 // KeychainDelete is a no-op off macOS.
-func KeychainDelete(service string) error { return nil }
+func KeychainDelete(_ string) error { return nil }
