@@ -1,0 +1,42 @@
+<svg width="840" height="240" viewBox="0 0 840 240" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Charon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="840" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#111a2e"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="150" x2="0" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#123047"/>
+      <stop offset="1" stop-color="#0a1a28"/>
+    </linearGradient>
+    <linearGradient id="wordmark" x1="300" y1="0" x2="820" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- backdrop -->
+  <rect width="840" height="240" rx="20" fill="url(#bg)"/>
+
+  <!-- river Styx -->
+  <rect y="150" width="840" height="90" fill="url(#water)"/>
+  <g stroke="#2dd4bf" stroke-opacity="0.25" stroke-width="2" fill="none" stroke-linecap="round">
+    <path d="M40 176 q20 -8 40 0 t40 0 t40 0"/>
+    <path d="M60 200 q20 -8 40 0 t40 0 t40 0"/>
+    <path d="M30 220 q20 -8 40 0 t40 0"/>
+  </g>
+
+  <!-- ferry + ferryman (Charon) -->
+  <g transform="translate(96 96)">
+    <!-- oar -->
+    <line x1="58" y1="-6" x2="120" y2="70" stroke="#7dd3fc" stroke-width="5" stroke-linecap="round"/>
+    <!-- cloaked figure -->
+    <path d="M40 8 q18 -30 36 0 l6 54 q-24 12 -48 0 z" fill="#0f172a" stroke="#2dd4bf" stroke-width="3"/>
+    <circle cx="58" cy="6" r="11" fill="#0f172a" stroke="#2dd4bf" stroke-width="3"/>
+    <!-- hull -->
+    <path d="M-6 70 q64 34 128 0 l-16 26 q-48 18 -96 0 z" fill="#0b1220" stroke="#38bdf8" stroke-width="3"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="300" y="120" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="86" font-weight="800" letter-spacing="4" fill="url(#wordmark)">CHARON</text>
+  <text x="302" y="160" font-family="ui-sans-serif, system-ui, sans-serif" font-size="21" fill="#94a3b8">ferry your AI tools between endpoints</text>
+</svg>

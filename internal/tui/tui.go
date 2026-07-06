@@ -76,6 +76,21 @@ type model struct {
 	tool   *tools.Tool
 	wiz    wizard
 	status string
+	width  int
+	height int
+}
+
+// resize sizes the list, reserving space for the banner on the tools screen.
+func (m *model) resize() {
+	header := 1
+	if m.view == viewTools {
+		header = bannerHeight + 1
+	}
+	h := m.height - header
+	if h < 3 {
+		h = 3
+	}
+	m.list.SetSize(m.width, h)
 }
 
 func newModel(store *profile.Store) model {
@@ -152,7 +167,8 @@ func (m model) Init() tea.Cmd { return nil }
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.list.SetSize(msg.Width, msg.Height-3)
+		m.width, m.height = msg.Width, msg.Height
+		m.resize()
 		return m, nil
 
 	case fetchedMsg:
@@ -223,6 +239,7 @@ func (m model) onEsc() (tea.Model, tea.Cmd) {
 		m.view = viewTools
 		m.status = ""
 		m.loadTools()
+		m.resize() // banner returns → shrink the list
 	case viewPickModel:
 		m.view = viewProfiles
 		m.status = "cancelled"
@@ -247,6 +264,7 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 		m.view = viewProfiles
 		m.status = ""
 		m.loadProfiles()
+		m.resize() // banner hidden → grow the list
 
 	case viewProfiles:
 		if it.value == addSentinel {
@@ -360,6 +378,9 @@ func (m model) View() string {
 			"\n\n" + statusStyle.Render("enter: continue · esc: cancel")
 	}
 	out := m.list.View()
+	if m.view == viewTools {
+		out = banner() + "\n" + out
+	}
 	if m.status != "" {
 		out += "\n" + statusStyle.Render(m.status)
 	}
