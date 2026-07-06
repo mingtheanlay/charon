@@ -1,5 +1,5 @@
 // Package tools models the AI CLIs (Codex, Claude, OpenCode) whose endpoint
-// and credentials aies can snapshot and switch between.
+// and credentials charon can snapshot and switch between.
 package tools
 
 // Info is a display-friendly summary of a tool's current live configuration.

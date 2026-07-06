@@ -34,7 +34,7 @@ type Manifest struct {
 	Spec      *Spec           `json:"spec,omitempty"`
 }
 
-// Store is rooted at ~/.config/aies.
+// Store is rooted at ~/.config/charon.
 type Store struct {
 	Root string
 }
@@ -43,8 +43,8 @@ type config struct {
 	Active map[string]string `json:"active"` // tool name -> profile name
 }
 
-// Open returns the store rooted at $XDG_CONFIG_HOME/aies (defaulting to
-// ~/.config/aies), keeping it alongside the tools' own config directories.
+// Open returns the store rooted at $XDG_CONFIG_HOME/charon (defaulting to
+// ~/.config/charon), keeping it alongside the tools' own config directories.
 func Open() (*Store, error) {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
