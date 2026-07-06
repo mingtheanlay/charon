@@ -1,0 +1,36 @@
+# golangci-lint configuration. Run: golangci-lint run
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - errcheck      # unchecked errors
+    - govet         # suspicious constructs
+    - ineffassign   # unused assignments
+    - staticcheck   # broad static analysis
+    - unused        # unused code
+    - gofmt         # formatting
+    - goimports     # import grouping
+    - misspell      # common misspellings
+    - revive        # style/lint rules
+    - unconvert     # redundant conversions
+    - bodyclose     # unclosed HTTP response bodies
+
+linters-settings:
+  errcheck:
+    # Writes to stdout/stderr and tabwriter flushes are conventionally ignored.
+    exclude-functions:
+      - fmt.Print
+      - fmt.Printf
+      - fmt.Println
+      - fmt.Fprint
+      - fmt.Fprintf
+      - fmt.Fprintln
+      - (*text/tabwriter.Writer).Flush
+
+issues:
+  exclude-rules:
+    # Test helpers may intentionally ignore errors for brevity.
+    - path: _test\.go
+      linters:
+        - errcheck

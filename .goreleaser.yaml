@@ -1,0 +1,50 @@
+# GoReleaser config for charon — builds cross-platform binaries, cuts a GitHub
+# release, and publishes a Homebrew formula to your tap.
+# Docs: https://goreleaser.com
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: charon
+    main: ./cmd/charon
+    binary: charon
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: charon
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+# Publishes/updates the Homebrew formula automatically on each release.
+brews:
+  - name: charon
+    repository:
+      # Create this repo first: github.com/<YOUR_GH_USERNAME>/homebrew-tap
+      owner: <YOUR_GH_USERNAME>
+      name: homebrew-tap
+    homepage: "https://github.com/<YOUR_GH_USERNAME>/ai-env-switcher"
+    description: "Detect and switch endpoint + credentials for Codex, Claude Code and OpenCode"
+    license: "MIT"
+    # Sanity check that the installed binary runs.
+    test: |
+      system "#{bin}/charon", "--help"
+
+release:
+  github:
+    owner: <YOUR_GH_USERNAME>
+    name: ai-env-switcher
