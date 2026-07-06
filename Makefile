@@ -1,4 +1,4 @@
-# aies — build & install
+# charon — build & install
 BINARY  := charon
 PKG     := ./cmd/charon
 # Version from git tag if available, else "dev".
@@ -9,7 +9,7 @@ PREFIX  ?= $(HOME)/.local
 
 .PHONY: build install uninstall test cover lint fmt tidy clean run
 
-build: ## Build ./aies for the current platform
+build: ## Build ./charon for the current platform
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
 
 install: ## Build and install to $(PREFIX)/bin
