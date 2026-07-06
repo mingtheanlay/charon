@@ -32,8 +32,7 @@ linters:
         - fmt.Fprintln
         - (*text/tabwriter.Writer).Flush
 
-issues:
-  # v2: exclude-rules moved to issues.exclusions.rules
+  # v2: per-path exclusions live under linters.exclusions (was issues.exclude-rules)
   exclusions:
     rules:
       # Test helpers may intentionally ignore errors for brevity.
