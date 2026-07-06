@@ -15,7 +15,7 @@ const bannerArt = ` ██████╗██╗  ██╗ █████╗
  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝`
 
 var (
-	bannerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("44")).Bold(true)
+	bannerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#377375")).Bold(true)
 	taglineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Italic(true).PaddingLeft(1)
 )
 

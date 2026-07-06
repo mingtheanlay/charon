@@ -78,7 +78,13 @@ func compactDelegate() list.DefaultDelegate {
 
 type wizard struct {
 	endpoint, key, model string
+	name                 string // target profile name when editing
+	edit                 bool   // true = overwrite an existing profile
 }
+
+// exampleEndpoint is shown as placeholder text so we never prefill (or reveal)
+// a real endpoint value in the input.
+const exampleEndpoint = "https://api.example.com/v1"
 
 type model struct {
 	store  *profile.Store
@@ -163,7 +169,7 @@ func (m *model) loadProfiles() {
 		items = append(items, item{title: "＋ Add new profile…", desc: "enter endpoint + key, pick a model", value: addSentinel})
 	}
 	m.list.SetItems(items)
-	m.list.Title = fmt.Sprintf("%s — enter: switch · s: save current · d: delete · esc: back", m.tool.Title)
+	m.list.Title = fmt.Sprintf("%s — enter: switch · e: edit · s: save · d: delete · esc: back", m.tool.Title)
 }
 
 func (m *model) showModels(ids []string) {
@@ -187,7 +193,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fetchedMsg:
 		if msg.err != nil {
-			// Let the user still add the profile, just without a model override.
+			// Model list unavailable; proceed without a model override.
+			m.wiz.model = ""
+			if m.wiz.edit {
+				m.status = "✗ " + msg.err.Error()
+				return m.finishAdd(m.wiz.name)
+			}
 			m.status = "✗ " + msg.err.Error() + " — you can name it without a model"
 			m.view = viewAddName
 			m.startInput("profile name", false)
@@ -209,6 +220,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.onEsc()
 		case "enter":
 			return m.onEnter()
+		case "e":
+			if m.view == viewProfiles && m.tool.ApplyAuth != nil {
+				if it, ok := m.list.SelectedItem().(item); ok && it.value != addSentinel {
+					m.wiz = wizard{name: it.value, edit: true}
+					m.view = viewAddEndpoint
+					m.status = "editing " + it.value + " — re-enter endpoint + key"
+					m.startInput(exampleEndpoint, false)
+					return m, textinput.Blink
+				}
+			}
 		case "s":
 			if m.view == viewProfiles {
 				m.view = viewSaveName
@@ -284,8 +305,8 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 		if it.value == addSentinel {
 			m.wiz = wizard{}
 			m.view = viewAddEndpoint
-			m.startInput("API base URL", false)
-			m.input.SetValue(m.tool.DefaultEndpoint)
+			// Placeholder only — never prefill (or reveal) a real endpoint value.
+			m.startInput(exampleEndpoint, false)
 			return m, textinput.Blink
 		}
 		backup, err := m.store.Apply(m.tool, it.value)
@@ -303,6 +324,9 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 			m.wiz.model = ""
 		} else {
 			m.wiz.model = it.value
+		}
+		if m.wiz.edit {
+			return m.finishAdd(m.wiz.name) // editing keeps the existing name
 		}
 		m.view = viewAddName
 		m.startInput("profile name (e.g. openrouter-fast)", false)
@@ -336,6 +360,9 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case viewAddEndpoint:
+			if val == "" {
+				val = m.tool.DefaultEndpoint // blank accepts the provider default
+			}
 			m.wiz.endpoint = val
 			m.view = viewAddKey
 			m.startInput("API key", true)
@@ -374,7 +401,11 @@ func (m model) finishAdd(name string) (tea.Model, tea.Cmd) {
 		m.status = "✗ saved config but failed to record profile: " + err.Error()
 	} else {
 		_ = m.store.SetActiveName(m.tool.Name, name)
-		m.status = fmt.Sprintf("✓ Added %s (%s · %s)", name, m.wiz.endpoint, m.wiz.model)
+		verb := "Added"
+		if m.wiz.edit {
+			verb = "Updated"
+		}
+		m.status = fmt.Sprintf("✓ %s %s (%s · %s)", verb, name, m.wiz.endpoint, m.wiz.model)
 	}
 	m.view = viewProfiles
 	m.loadProfiles()
@@ -404,6 +435,9 @@ func (m model) View() string {
 func (m model) prompt() string {
 	switch m.view {
 	case viewAddEndpoint:
+		if m.wiz.edit {
+			return "Edit " + m.wiz.name + " — API base URL:"
+		}
 		return "New " + m.tool.Title + " profile — API base URL:"
 	case viewAddKey:
 		return "API key (hidden):"
