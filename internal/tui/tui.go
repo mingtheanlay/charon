@@ -164,7 +164,8 @@ func (m *model) loadEditForm() {
 
 func (m *model) loadTools() {
 	var items []list.Item
-	for _, t := range tools.All() {
+	selectedIndex := 0
+	for i, t := range tools.All() {
 		desc := "not detected"
 		if t.Detected != nil && t.Detected() {
 			info, _ := t.Describe()
@@ -175,8 +176,12 @@ func (m *model) loadTools() {
 			desc = fmt.Sprintf("active: %s · %s · %s", active, info.AuthMode, info.Endpoint)
 		}
 		items = append(items, item{title: t.Title, desc: desc, value: t.Name})
+		if m.tool != nil && t.Name == m.tool.Name {
+			selectedIndex = i
+		}
 	}
 	m.list.SetItems(items)
+	m.list.Select(selectedIndex)
 	m.list.Title = "Charon — select a tool"
 }
 
