@@ -38,8 +38,12 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/mingtheanlay/charon"
-    description: "Detect and switch endpoint + credentials for Codex, Claude Code and OpenCode"
+    description: "Switch Codex, Claude Code and OpenCode between endpoint + credential profiles"
     license: "MIT"
+    # Shown by `brew info charon` — point users at the no-Homebrew curl installer.
+    caveats: |
+      Not using Homebrew? Install with one line on Linux or macOS:
+        curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/install.sh | sh
     # Sanity check that the installed binary runs.
     test: |
       system "#{bin}/charon", "--help"

@@ -51,77 +51,42 @@ Keychain support is compiled in per-platform (`keychain_darwin.go` vs.
 
 ## Install
 
-### Option 1 — Homebrew (macOS & Linux, recommended)
-
-```sh
-brew tap mtty80/tap
-brew install charon
-```
-
-To upgrade later:
-
-```sh
-brew upgrade charon
-```
-
-### Option 2 — Quick install (curl, Linux & macOS)
-
-No Go required — downloads the prebuilt binary for your platform, verifies its
-checksum, and installs it to `~/.local/bin`:
+**curl** — Linux & macOS, no Go needed. Downloads the prebuilt binary for your
+platform, verifies its checksum, and installs to `~/.local/bin`:
 
 ```sh
 curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/install.sh | sh
 ```
 
-Install system-wide or pin a version with:
+> Prepend `PREFIX=/usr/local` to install system-wide, or `VERSION=v1.2.3` to pin a release.
+
+**Homebrew** — macOS & Linux:
 
 ```sh
-curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/install.sh | PREFIX=/usr/local sh
-curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/install.sh | VERSION=v1.2.3 sh
+brew install mtty80/tap/charon
 ```
 
-### Option 3 — Download a pre-built binary
+<details>
+<summary><b>Other methods</b> — manual binary · build from source</summary>
 
-Grab the latest binary for your platform from the
-[**Releases page**](https://github.com/mingtheanlay/charon/releases/latest):
-
-| Platform | Archive |
-|----------|---------|
-| macOS (Apple Silicon) | `charon_darwin_arm64.tar.gz` |
-| macOS (Intel) | `charon_darwin_amd64.tar.gz` |
-| Linux (x86-64) | `charon_linux_amd64.tar.gz` |
-| Linux (ARM64) | `charon_linux_arm64.tar.gz` |
+**Pre-built binary** — grab your platform's archive from the
+[Releases page](https://github.com/mingtheanlay/charon/releases/latest)
+(`charon_{darwin,linux}_{amd64,arm64}.tar.gz`) and verify it against the
+included `checksums.txt`:
 
 ```sh
-# Example for macOS Apple Silicon
 curl -L https://github.com/mingtheanlay/charon/releases/latest/download/charon_darwin_arm64.tar.gz | tar xz
 sudo mv charon /usr/local/bin/
 ```
 
-Each release includes a `checksums.txt` — verify with:
+**From source** — requires Go 1.24+:
 
 ```sh
-shasum -a 256 -c checksums.txt
+make install                 # build + install to ~/.local/bin (PREFIX to override)
+go build -o charon ./cmd/charon   # or just build here
 ```
 
-### Option 4 — Build from source
-
-Requires **Go 1.24+**.
-
-```sh
-# Quick install to ~/.local/bin (no sudo)
-./install.sh
-
-# Or choose a custom prefix
-PREFIX=/usr/local ./install.sh
-
-# Or use the Makefile
-make install          # build + install to ~/.local/bin
-make build            # just build ./charon here
-
-# Or plain go build
-go build -o charon ./cmd/charon
-```
+</details>
 
 ---
 
