@@ -37,7 +37,6 @@ brews:
       owner: mingtheanlay
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    folder: Formula
     homepage: "https://github.com/mingtheanlay/charon"
     description: "Detect and switch endpoint + credentials for Codex, Claude Code and OpenCode"
     license: "MIT"
