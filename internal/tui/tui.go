@@ -109,6 +109,7 @@ func newModel(store *profile.Store) model {
 	l := list.New(nil, themedDelegate(), 0, 0)
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(false)
+	l.InfiniteScrolling = true
 	l.Styles.Title = titleStyle
 	l.Styles.TitleBar = l.Styles.TitleBar.Padding(0, 0, 1, 0)
 	// Theme the paginator and help footer to match.
@@ -205,6 +206,8 @@ func (m *model) showModels(ids []string) {
 	items = append(items, item{title: "(skip — no model override)", desc: "", value: skipModel})
 	m.list.SetItems(items)
 	m.list.Title = m.tool.Title + " — choose a model · esc: cancel"
+	m.list.SetFilteringEnabled(true)
+	m.list.SetFilterState(list.Filtering)
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -245,6 +248,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.inputView() {
 			return m.updateInput(msg)
+		}
+		if m.list.FilterState() == list.Filtering {
+			if msg.String() != "enter" && msg.String() != "ctrl+c" {
+				var cmd tea.Cmd
+				m.list, cmd = m.list.Update(msg)
+				return m, cmd
+			}
 		}
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -315,6 +325,8 @@ func (m model) onEsc() (tea.Model, tea.Cmd) {
 		m.status = "cancelled"
 		m.loadProfiles()
 	case viewPickModel:
+		m.list.SetFilteringEnabled(false)
+		m.list.ResetFilter()
 		if m.fromForm {
 			m.fromForm = false
 			m.view = viewEditForm
@@ -368,6 +380,8 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 		return m.onEditFormSelect(it.value)
 
 	case viewPickModel:
+		m.list.SetFilteringEnabled(false)
+		m.list.ResetFilter()
 		if it.value == skipModel {
 			m.wiz.model = ""
 		} else {
@@ -442,15 +456,28 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		val := m.input.Value()
 		switch m.view {
 		case viewEditField:
+			refetch := false
 			switch m.editField {
 			case fieldName:
 				if val != "" {
 					m.wiz.name = val
 				}
 			case fieldURL:
-				m.wiz.endpoint = val
+				if m.wiz.endpoint != val {
+					m.wiz.endpoint = val
+					refetch = true
+				}
 			case fieldToken:
-				m.wiz.key = val
+				if m.wiz.key != val {
+					m.wiz.key = val
+					refetch = true
+				}
+			}
+			if refetch && m.wiz.endpoint != "" && m.wiz.key != "" {
+				m.fromForm = true
+				m.view = viewFetching
+				m.status = "Fetching models…"
+				return m, fetchModelsCmd(m.tool.Provider, m.wiz.endpoint, m.wiz.key)
 			}
 			m.view = viewEditForm
 			m.loadEditForm()
