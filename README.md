@@ -54,7 +54,7 @@ Keychain support is compiled in per-platform (`keychain_darwin.go` vs.
 ### Option 1 — Homebrew (macOS & Linux, recommended)
 
 ```sh
-brew tap mingtheanlay/tap
+brew tap mtty/tap
 brew install charon
 ```
 
