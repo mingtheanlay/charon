@@ -1,18 +1,18 @@
 # AGENTS.md
 
 Guidance for AI coding agents (and humans) working in this repository.
-`aies` is a small Go CLI that detects the Codex, Claude Code, and OpenCode CLIs
+`charon` is a small Go CLI that detects the Codex, Claude Code, and OpenCode CLIs
 and switches each one's **endpoint + credentials** between named profiles.
 
 ## Golden rule: this tool edits real user credentials
 
-`aies` reads and writes live config for other tools (`~/.codex`, `~/.claude`,
+`charon` reads and writes live config for other tools (`~/.codex`, `~/.claude`,
 `~/.config/opencode`, `~/.local/share/opencode`) and the macOS Keychain.
 
-- **Never** run `aies add`, `aies switch`, `aies save`, or the interactive menu
+- **Never** run `charon add`, `charon switch`, `charon save`, or the interactive menu
   against your real `$HOME` while developing. Always sandbox:
   ```sh
-  HOME=$(mktemp -d) go run ./cmd/aies status
+  HOME=$(mktemp -d) go run ./cmd/charon status
   ```
 - Tests must never touch real config. Use `t.Setenv("HOME", t.TempDir())` and
   `t.Setenv("XDG_CONFIG_HOME", t.TempDir())`. See `internal/tools/tools_test.go`
@@ -26,7 +26,7 @@ and switches each one's **endpoint + credentials** between named profiles.
 ## Commands
 
 ```sh
-make build      # build ./aies
+make build      # build ./charon
 make test       # go vet + go test -race ./...
 make cover      # coverage summary
 make lint       # golangci-lint run
