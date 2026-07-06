@@ -70,14 +70,14 @@ No Go required — downloads the prebuilt binary for your platform, verifies its
 checksum, and installs it to `~/.local/bin`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mingtheanlay/charon/main/scripts/install.sh | sh
+curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/install.sh | sh
 ```
 
 Install system-wide or pin a version with:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mingtheanlay/charon/main/scripts/install.sh | PREFIX=/usr/local sh
-curl -fsSL https://raw.githubusercontent.com/mingtheanlay/charon/main/scripts/install.sh | VERSION=v1.2.3 sh
+curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/install.sh | PREFIX=/usr/local sh
+curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/install.sh | VERSION=v1.2.3 sh
 ```
 
 ### Option 3 — Download a pre-built binary

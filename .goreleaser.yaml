@@ -48,3 +48,8 @@ release:
   github:
     owner: mingtheanlay
     name: charon
+  # Attach the curl installer to each release so it can be fetched from the
+  # release CDN (github.com/.../releases/latest/download/install.sh) instead of
+  # raw.githubusercontent.com, which rate-limits (HTTP 429) by client IP.
+  extra_files:
+    - glob: ./scripts/install.sh
