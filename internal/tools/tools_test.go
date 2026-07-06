@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -52,15 +53,20 @@ func TestCodexDescribeAndApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	info, _ = c.Describe()
-	if info.Endpoint != "https://proxy/v1" || info.AuthMode != "apikey" || info.Secret != "sk-k123456789" {
+	if info.Endpoint != "https://proxy/v1" || info.AuthMode != "api" || info.Secret != "sk-k123456789" {
 		t.Errorf("after apply: %#v", info)
 	}
-	// Existing tokens must be preserved in auth.json.
+	// The key must be embedded inline in config.toml, and the ChatGPT OAuth
+	// tokens in auth.json must be left untouched.
+	cfgData, _ := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if !strings.Contains(string(cfgData), "experimental_bearer_token") {
+		t.Error("config.toml missing inline bearer token")
+	}
 	var auth map[string]any
 	data, _ := os.ReadFile(filepath.Join(home, ".codex", "auth.json"))
 	_ = json.Unmarshal(data, &auth)
-	if auth["tokens"] == nil {
-		t.Error("apply dropped existing tokens field")
+	if auth["auth_mode"] != "chatgpt" || auth["tokens"] == nil {
+		t.Error("apply must not modify auth.json (ChatGPT OAuth)")
 	}
 }
 
@@ -87,6 +93,31 @@ func TestClaudeDescribeAndApply(t *testing.T) {
 	}
 }
 
+func TestClaudeCustomEndpointUsesBearer(t *testing.T) {
+	home := sandboxHome(t)
+	writeFile(t, filepath.Join(home, ".claude", "settings.json"), `{}`)
+
+	c := Find("claude")
+	if err := c.ApplyAuth(AuthSpec{Endpoint: "https://gateway.example/v1", Key: "sk-gw-123456789", Model: "some-model"}); err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Model string            `json:"model"`
+		Env   map[string]string `json:"env"`
+	}
+	data, _ := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	_ = json.Unmarshal(data, &s)
+	if s.Env["ANTHROPIC_AUTH_TOKEN"] != "sk-gw-123456789" {
+		t.Errorf("custom endpoint should use ANTHROPIC_AUTH_TOKEN, got env=%v", s.Env)
+	}
+	if _, hasKey := s.Env["ANTHROPIC_API_KEY"]; hasKey {
+		t.Error("custom endpoint must not also set ANTHROPIC_API_KEY")
+	}
+	if s.Model != "some-model" {
+		t.Errorf("model should be top-level, got %q", s.Model)
+	}
+}
+
 func TestOpenCodeDescribeAndApply(t *testing.T) {
 	home := sandboxHome(t)
 	authPath := filepath.Join(home, ".local", "share", "opencode", "auth.json")
@@ -99,14 +130,34 @@ func TestOpenCodeDescribeAndApply(t *testing.T) {
 	if err := c.ApplyAuth(AuthSpec{Endpoint: "https://openrouter.ai/api/v1", Key: "sk-or-123456789", Model: "x/y"}); err != nil {
 		t.Fatal(err)
 	}
+	// The provider (with key in options.apiKey and a models map) must be written
+	// into opencode.json; auth.json must keep its existing login untouched.
+	var cfg struct {
+		Provider map[string]struct {
+			Options struct {
+				BaseURL string `json:"baseURL"`
+				APIKey  string `json:"apiKey"`
+			} `json:"options"`
+			Models map[string]any `json:"models"`
+		} `json:"provider"`
+	}
+	cfgData, _ := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
+	_ = json.Unmarshal(cfgData, &cfg)
+	p, ok := cfg.Provider["charon"]
+	if !ok {
+		t.Fatal("provider 'charon' not written to opencode.json")
+	}
+	if p.Options.APIKey != "sk-or-123456789" {
+		t.Errorf("apiKey not in options: %#v", p.Options)
+	}
+	if len(p.Models) == 0 {
+		t.Error("models map is empty; models won't appear in opencode")
+	}
 	var auth map[string]any
 	data, _ := os.ReadFile(authPath)
 	_ = json.Unmarshal(data, &auth)
 	if auth["opencode"] == nil {
-		t.Error("apply dropped existing provider 'opencode'")
-	}
-	if auth["aies"] == nil {
-		t.Error("apply did not add provider 'aies'")
+		t.Error("apply must not drop existing login 'opencode' in auth.json")
 	}
 }
 

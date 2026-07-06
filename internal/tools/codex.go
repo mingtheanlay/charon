@@ -25,11 +25,15 @@ func newCodex() *Tool {
 		Provider:        "openai",
 		DefaultEndpoint: "https://api.openai.com/v1",
 		Artifacts: []Artifact{
-			NewFile("config.toml", configPath, 0o644),
+			// config.toml holds the inline bearer token, so keep it private.
+			NewFile("config.toml", configPath, 0o600),
 			NewFile("auth.json", authPath, 0o600),
 		},
 		ApplyAuth: func(a AuthSpec) error {
 			// Register a custom OpenAI-compatible provider and point Codex at it.
+			// Codex's env_key reads the key from a runtime env var, so instead we
+			// embed it inline via experimental_bearer_token to be self-contained.
+			// auth.json (ChatGPT OAuth) is left untouched.
 			cfg, err := loadTOMLMap(configPath)
 			if err != nil {
 				return err
@@ -37,25 +41,17 @@ func newCodex() *Tool {
 			if a.Model != "" {
 				cfg["model"] = a.Model
 			}
-			cfg["model_provider"] = "aies"
+			cfg["model_provider"] = "charon"
 			providers := subMap(cfg, "model_providers")
-			providers["aies"] = map[string]any{
-				"name":     "aies",
+			providers["charon"] = map[string]any{
+				"name":     "charon",
 				"base_url": a.Endpoint,
-				"env_key":  "OPENAI_API_KEY",
-				"wire_api": "chat",
+				// Codex removed "chat" in Feb 2026; "responses" is the only
+				// supported wire API. See openai/codex discussion #7782.
+				"wire_api":                  "responses",
+				"experimental_bearer_token": a.Key,
 			}
-			if err := writeTOMLMap(configPath, cfg, 0o644); err != nil {
-				return err
-			}
-
-			auth, err := loadJSONMap(authPath)
-			if err != nil {
-				return err
-			}
-			auth["OPENAI_API_KEY"] = a.Key
-			auth["auth_mode"] = "apikey"
-			return writeJSONMap(authPath, auth, 0o600)
+			return writeTOMLMap(configPath, cfg, 0o600)
 		},
 		Detected: func() bool {
 			_, err := os.Stat(authPath)
@@ -69,27 +65,35 @@ func newCodex() *Tool {
 					Model          string `toml:"model"`
 					ModelProvider  string `toml:"model_provider"`
 					ModelProviders map[string]struct {
-						BaseURL string `toml:"base_url"`
+						BaseURL     string `toml:"base_url"`
+						BearerToken string `toml:"experimental_bearer_token"`
 					} `toml:"model_providers"`
 				}
 				if toml.Unmarshal(data, &cfg) == nil {
 					info.Model = cfg.Model
-					if p, ok := cfg.ModelProviders[cfg.ModelProvider]; ok && p.BaseURL != "" {
-						info.Endpoint = p.BaseURL
+					if p, ok := cfg.ModelProviders[cfg.ModelProvider]; ok {
+						if p.BaseURL != "" {
+							info.Endpoint = p.BaseURL
+						}
+						if p.BearerToken != "" {
+							info.Secret, info.AuthMode = p.BearerToken, "api"
+						}
 					}
 				}
 			}
 
-			if data, err := os.ReadFile(authPath); err == nil {
-				var auth struct {
-					AuthMode string `json:"auth_mode"`
-					APIKey   string `json:"OPENAI_API_KEY"`
-				}
-				if json.Unmarshal(data, &auth) == nil {
-					info.AuthMode = auth.AuthMode
-					info.Secret = auth.APIKey
-					if info.AuthMode == "" && auth.APIKey != "" {
-						info.AuthMode = "api"
+			if info.AuthMode == "" {
+				if data, err := os.ReadFile(authPath); err == nil {
+					var auth struct {
+						AuthMode string `json:"auth_mode"`
+						APIKey   string `json:"OPENAI_API_KEY"`
+					}
+					if json.Unmarshal(data, &auth) == nil {
+						info.AuthMode = auth.AuthMode
+						info.Secret = auth.APIKey
+						if info.AuthMode == "" && auth.APIKey != "" {
+							info.AuthMode = "api"
+						}
 					}
 				}
 			}
