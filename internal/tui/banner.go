@@ -2,8 +2,9 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// bannerHeight is the number of terminal rows banner() renders.
-const bannerHeight = 8
+// bannerHeight is the number of terminal rows the banner block occupies,
+// including the blank line separating it from the list title.
+const bannerHeight = 9
 
 // bannerArt is the CHARON wordmark (ANSI Shadow figlet style).
 const bannerArt = ` ██████╗██╗  ██╗ █████╗ ██████╗  ██████╗ ███╗   ██╗
@@ -22,5 +23,5 @@ var (
 func banner() string {
 	return bannerStyle.Render(bannerArt) + "\n" +
 		taglineStyle.Render("⛴  ferry your AI tools between endpoints") + "  " +
-		hintStyle.Render("· ↑/↓ move · ? help · ctrl+d quit")
+		hintStyle.Render("· ↑/↓ move · ? help · ctrl+c quit")
 }

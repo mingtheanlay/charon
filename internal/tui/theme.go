@@ -72,10 +72,10 @@ func themedDelegate() list.DefaultDelegate {
 	return d
 }
 
-// themedCompactDelegate is the same palette at one line per row, for dense lists.
+// themedCompactDelegate is the same palette with single-line rows (no description),
+// keeping the one-line row gap so spacing stays consistent with the other screens.
 func themedCompactDelegate() list.DefaultDelegate {
 	d := themedDelegate()
 	d.ShowDescription = false
-	d.SetSpacing(0)
 	return d
 }

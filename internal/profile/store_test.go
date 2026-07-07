@@ -42,29 +42,65 @@ func write(t *testing.T, path, content string) {
 	}
 }
 
-func TestEnsureOriginalAndActive(t *testing.T) {
+func TestEnsureDefaultAndActive(t *testing.T) {
 	dir := t.TempDir()
 	tool, cfg, auth := fakeTool(dir)
 	write(t, cfg, "c1")
 	write(t, auth, "a1")
 
 	s := newStore(t)
-	if err := s.EnsureOriginal(tool); err != nil {
+	if err := s.EnsureDefault(tool); err != nil {
 		t.Fatal(err)
 	}
-	if s.Active("fake") != OriginalName {
-		t.Errorf("active = %q, want original", s.Active("fake"))
+	if s.Active("fake") != DefaultName {
+		t.Errorf("active = %q, want default", s.Active("fake"))
 	}
-	// Calling again must not overwrite the captured original.
+	// Calling again must not overwrite the captured default.
 	write(t, cfg, "changed")
-	if err := s.EnsureOriginal(tool); err != nil {
+	if err := s.EnsureDefault(tool); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Apply(tool, OriginalName); err != nil {
+	if _, err := s.Apply(tool, DefaultName); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(cfg); string(got) != "c1" {
-		t.Errorf("original not preserved: got %q", got)
+		t.Errorf("default not preserved: got %q", got)
+	}
+}
+
+func TestEnsureDefaultMigratesLegacyOriginal(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, auth := fakeTool(dir)
+	write(t, cfg, "c1")
+	write(t, auth, "a1")
+
+	s := newStore(t)
+	// Simulate a pre-rename install: a captured "original" that is active.
+	if err := s.Save(tool, legacyDefaultName, "Original (auto-captured)", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.setActive("fake", legacyDefaultName); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	// The legacy profile must be renamed, not duplicated.
+	if s.Exists("fake", legacyDefaultName) {
+		t.Error("legacy original profile still exists after migration")
+	}
+	if !s.Exists("fake", DefaultName) {
+		t.Fatal("default profile missing after migration")
+	}
+	if names := s.List("fake"); len(names) != 1 {
+		t.Errorf("List = %v, want a single default profile", names)
+	}
+	if s.Active("fake") != DefaultName {
+		t.Errorf("active = %q, want default", s.Active("fake"))
+	}
+	if m, err := s.LoadManifest("fake", DefaultName); err != nil || m.Label != "Default (auto-captured)" {
+		t.Errorf("label = %q, want refreshed default label (err=%v)", m.Label, err)
 	}
 }
 
@@ -75,7 +111,7 @@ func TestSaveSwitchRoundTrip(t *testing.T) {
 	write(t, auth, "orig-auth")
 
 	s := newStore(t)
-	if err := s.EnsureOriginal(tool); err != nil {
+	if err := s.EnsureDefault(tool); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,12 +123,12 @@ func TestSaveSwitchRoundTrip(t *testing.T) {
 	}
 
 	names := s.List("fake")
-	if len(names) != 2 || names[0] != OriginalName {
-		t.Errorf("List = %v, want [original work]", names)
+	if len(names) != 2 || names[0] != DefaultName {
+		t.Errorf("List = %v, want [default work]", names)
 	}
 
-	// Switch back to original.
-	if _, err := s.Apply(tool, OriginalName); err != nil {
+	// Switch back to default.
+	if _, err := s.Apply(tool, DefaultName); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(cfg); string(got) != "orig-cfg" {
@@ -118,9 +154,9 @@ func TestApplyMakesBackup(t *testing.T) {
 	write(t, auth, "a")
 
 	s := newStore(t)
-	_ = s.EnsureOriginal(tool)
+	_ = s.EnsureDefault(tool)
 	write(t, cfg, "current")
-	backup, err := s.Apply(tool, OriginalName)
+	backup, err := s.Apply(tool, DefaultName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +223,7 @@ func TestRemoveProfile(t *testing.T) {
 	if s.Exists("fake", "temp") {
 		t.Error("profile still exists after Remove")
 	}
-	if err := s.Remove("fake", OriginalName); err == nil {
-		t.Error("removing original should fail")
+	if err := s.Remove("fake", DefaultName); err == nil {
+		t.Error("removing default should fail")
 	}
 }

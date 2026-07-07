@@ -47,8 +47,9 @@ func TestCodexDescribeAndApply(t *testing.T) {
 		t.Fatal("codex should be detected")
 	}
 	info, _ := c.Describe()
-	if info.AuthMode != "chatgpt" {
-		t.Errorf("authMode = %q, want chatgpt", info.AuthMode)
+	// A ChatGPT OAuth login (auth_mode "chatgpt" on disk) surfaces as "oauth".
+	if info.AuthMode != "oauth" {
+		t.Errorf("authMode = %q, want oauth", info.AuthMode)
 	}
 
 	err := c.ApplyAuth(AuthSpec{Endpoint: "https://proxy/v1", Key: "sk-k123456789", Model: "gpt-5.5"})

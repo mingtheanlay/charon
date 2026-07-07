@@ -33,7 +33,6 @@ type view int
 const (
 	viewTools view = iota
 	viewProfiles
-	viewSaveName      // quick-save current config ("s")
 	viewAddEndpoint   // wizard: enter endpoint
 	viewAddKey        // wizard: enter API key
 	viewFetching      // wizard: fetching models
@@ -71,7 +70,6 @@ func (i item) FilterValue() string { return i.title }
 var (
 	keySwitch = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch"))
 	keyEdit   = key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit"))
-	keySave   = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "save current"))
 	keyDelete = key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete"))
 	keyBack   = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))
 	keyOpen   = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open"))
@@ -95,7 +93,6 @@ type model struct {
 	editField string // which field the single-field editor is editing
 	fromForm  bool   // model picker/fetch was launched from the edit form
 	delTarget string // profile name pending delete confirmation
-	quitting  bool   // ctrl+d pressed once; a second press quits
 
 	spinner    spinner.Model
 	loadingMsg string      // playful line shown on the loading screen, picked per fetch
@@ -150,6 +147,7 @@ func newModel(store *profile.Store) model {
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(false)
 	l.InfiniteScrolling = true
+	l.KeyMap.Quit.SetEnabled(false) // "q"/"esc" must not quit; only ctrl+c does
 	l.Styles.Title = titleStyle
 	l.Styles.TitleBar = l.Styles.TitleBar.Padding(0, 0, 1, 0)
 	// Theme the paginator and help footer to match.
@@ -178,7 +176,7 @@ func (m *model) setHelpKeys(bindings ...key.Binding) {
 // inputView reports whether the current view is a text-entry step.
 func (m model) inputView() bool {
 	switch m.view {
-	case viewSaveName, viewAddEndpoint, viewAddKey, viewAddName, viewEditField:
+	case viewAddEndpoint, viewAddKey, viewAddName, viewEditField:
 		return true
 	}
 	return false
@@ -228,29 +226,46 @@ func (m *model) loadProfiles() {
 	saved := m.store.List(m.tool.Name)
 	selectedIndex := 0
 	for i, name := range saved {
-		// One line per profile: ✓ marks the active one; any label is appended.
+		// ✓ marks the active profile; url and model show on the line below.
 		title := name
-		if man, err := m.store.LoadManifest(m.tool.Name, name); err == nil && man.Label != "" {
-			title += " — " + man.Label
-		}
 		if name == active {
 			title = "✓ " + title
 			selectedIndex = i // land the cursor on the active profile
 		}
-		items = append(items, item{title: title, value: name})
+		items = append(items, item{title: title, desc: m.profileDetail(name), value: name})
 	}
 	if m.tool.ApplyAuth != nil {
 		items = append(items, item{title: "＋ Add new profile…", value: addSentinel})
 	}
-	m.list.SetDelegate(themedCompactDelegate())
+	m.list.SetDelegate(themedDelegate()) // two-line rows show each profile's url and model
 	m.list.SetItems(items)
 	m.list.Select(selectedIndex)
 	m.list.Title = m.tool.Title + " profiles"
-	m.setHelpKeys(keySwitch, keyEdit, keySave, keyDelete, keyBack)
+	m.setHelpKeys(keySwitch, keyEdit, keyDelete, keyBack)
 	// Welcome a first-time user who has no profiles for this tool yet.
 	if len(saved) == 0 && m.status == "" && m.tool.ApplyAuth != nil {
 		m.setStatus(statusInfo, `No profiles yet — press enter on "Add new profile" to create one.`)
 	}
+}
+
+// profileDetail is the second-line summary of a profile: its endpoint and model
+// when recorded, falling back to the manifest label for captured profiles.
+func (m *model) profileDetail(name string) string {
+	if spec, ok := m.store.GetSpec(m.tool.Name, name); ok {
+		url := m.tool.ResolveEndpoint(spec.Endpoint)
+		if url == "" {
+			url = "default endpoint"
+		}
+		model := spec.Model
+		if model == "" {
+			model = "no model override"
+		}
+		return url + " · " + model
+	}
+	if man, err := m.store.LoadManifest(m.tool.Name, name); err == nil && man.Label != "" {
+		return man.Label
+	}
+	return "captured config"
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -287,13 +302,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyMsg:
-		// ctrl+d quits only on a second consecutive press; any other key disarms it.
-		if msg.Type == tea.KeyCtrlD {
-			return m.onQuit()
-		}
-		if m.quitting {
-			m.quitting = false
-			m.clearStatus()
+		// ctrl+c is the only way to quit, from any screen.
+		if msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
 		}
 		if m.inputView() {
 			return m.updateInput(msg)
@@ -305,15 +316,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updatePickModel(msg)
 		}
 		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
 		case "esc":
 			return m.onEsc()
 		case "enter":
 			return m.onEnter()
 		case "e":
+			if m.view == viewEditForm {
+				// Inside the edit form, "e" opens the highlighted field for editing.
+				if it, ok := m.list.SelectedItem().(item); ok {
+					return m.onEditFormSelect(it.value)
+				}
+				return m, nil
+			}
 			if m.view == viewProfiles && m.tool.ApplyAuth != nil {
 				if it, ok := m.list.SelectedItem().(item); ok && it.value != addSentinel {
+					if it.value == profile.DefaultName {
+						m.setStatus(statusInfo, "the default profile can't be edited")
+						return m, nil
+					}
 					sp, _ := m.store.GetSpec(m.tool.Name, it.value)
 					m.wiz = wizard{name: it.value, origName: it.value, edit: true,
 						endpoint: sp.Endpoint, key: sp.Key, model: sp.Model}
@@ -324,15 +344,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-		case "s":
-			if m.view == viewProfiles {
-				m.view = viewSaveName
-				m.startInput("profile name (e.g. work-key)", false)
-				return m, textinput.Blink
-			}
 		case "d":
 			if m.view == viewProfiles {
 				if it, ok := m.list.SelectedItem().(item); ok && it.value != addSentinel {
+					if it.value == profile.DefaultName {
+						m.setStatus(statusInfo, "the default profile can't be deleted")
+						return m, nil
+					}
 					m.delTarget = it.value
 					m.view = viewConfirmDelete
 					m.clearStatus()
@@ -359,16 +377,6 @@ func (m *model) startInput(placeholder string, password bool) {
 	m.input.Focus()
 }
 
-// onQuit arms the two-step quit: first ctrl+d confirms, a second one exits.
-func (m model) onQuit() (tea.Model, tea.Cmd) {
-	if m.quitting {
-		return m, tea.Quit
-	}
-	m.quitting = true
-	m.setStatus(statusInfo, "Press ctrl+d again to quit")
-	return m, nil
-}
-
 func (m model) onEsc() (tea.Model, tea.Cmd) {
 	switch m.view {
 	case viewProfiles:
@@ -377,11 +385,8 @@ func (m model) onEsc() (tea.Model, tea.Cmd) {
 		m.loadTools()
 		m.resize() // banner returns → shrink the list
 	case viewEditForm:
-		m.editField = "" // leaving edit expires the field focus → next entry starts on Name
-		m.view = viewProfiles
-		m.setStatus(statusInfo, "cancelled")
-		m.loadProfiles()
-		m.selectByValue(m.wiz.origName) // stay on the profile we were editing
+		m.editField = ""               // leaving edit expires the field focus → next entry starts on Name
+		return m.finishAdd(m.wiz.name) // back applies edits automatically — no explicit save step
 	case viewPickModel:
 		if m.fromForm {
 			m.fromForm = false
@@ -434,7 +439,8 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 		}
 
 	case viewEditForm:
-		return m.onEditFormSelect(it.value)
+		// "e" edits the highlighted field; enter is inert (esc saves & backs out).
+		return m, nil
 
 	case viewPickModel:
 		if it.value == skipModel {

@@ -37,28 +37,6 @@ func TestStatusRender(t *testing.T) {
 	}
 }
 
-func TestOnQuitTwoStep(t *testing.T) {
-	m := model{}
-
-	// First ctrl+d arms the quit but does not exit.
-	got, cmd := m.onQuit()
-	armed := got.(model)
-	if !armed.quitting {
-		t.Fatal("first ctrl+d should arm quitting")
-	}
-	if cmd != nil {
-		t.Fatal("first ctrl+d should not issue a quit command")
-	}
-	if armed.status == "" {
-		t.Fatal("first ctrl+d should show a confirmation hint")
-	}
-
-	// A second ctrl+d (still armed) issues the quit command.
-	if _, cmd2 := armed.onQuit(); cmd2 == nil {
-		t.Fatal("second ctrl+d should issue a quit command")
-	}
-}
-
 func TestWizardStep(t *testing.T) {
 	tests := []struct {
 		view      view
@@ -76,7 +54,6 @@ func TestWizardStep(t *testing.T) {
 		{viewProfiles, 0, 0, ""},
 		{viewEditForm, 0, 0, ""},
 		{viewEditField, 0, 0, ""},
-		{viewSaveName, 0, 0, ""},
 		{viewConfirmDelete, 0, 0, ""},
 	}
 	for _, tt := range tests {

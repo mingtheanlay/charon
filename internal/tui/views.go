@@ -28,7 +28,7 @@ func (m model) View() string {
 		return m.wizardHeader() +
 			promptStyle.Render(m.spinner.View()+m.loadingMsg) +
 			"\n\n" + hintStyle.Render("fetching models from "+m.wiz.endpoint)
-	case viewAddEndpoint, viewAddKey, viewAddName, viewSaveName, viewEditField:
+	case viewAddEndpoint, viewAddKey, viewAddName, viewEditField:
 		body := m.wizardHeader() +
 			promptStyle.Render(m.prompt()) +
 			"\n\n  " + m.input.View() +
@@ -40,7 +40,7 @@ func (m model) View() string {
 	}
 	out := m.list.View()
 	if m.view == viewTools {
-		out = banner() + "\n" + out
+		out = banner() + "\n\n" + out // blank line between the banner and the list title
 	}
 	if line := statusRender(m.statusLvl, m.status); line != "" {
 		out += "\n" + line
@@ -82,6 +82,6 @@ func (m model) prompt() string {
 	case viewAddName:
 		return "Name this profile (e.g. work, openrouter-fast):"
 	default:
-		return "Save current " + m.tool.Title + " config as:"
+		return ""
 	}
 }

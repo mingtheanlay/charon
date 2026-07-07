@@ -90,7 +90,7 @@ func newOpenCode() *Tool {
 					if p, ok := cfg.Provider["charon"]; ok {
 						info.Endpoint = p.Options.BaseURL
 						if p.Options.APIKey != "" {
-							info.Secret, info.AuthMode = p.Options.APIKey, "api (charon)"
+							info.Secret, info.AuthMode = p.Options.APIKey, "api"
 						}
 					}
 					if info.Endpoint == "" {

@@ -16,17 +16,8 @@ CLIs and switches each one's **endpoint + credentials** between named profiles.
 Each profile is a full snapshot of that tool's auth surface, so it works for
 both API-key logins and OAuth/ChatGPT sessions.
 
-Running `charon` opens an interactive menu behind this banner:
-
-```
- ██████╗██╗  ██╗ █████╗ ██████╗  ██████╗ ███╗   ██╗
-██╔════╝██║  ██║██╔══██╗██╔══██╗██╔═══██╗████╗  ██║
-██║     ███████║███████║██████╔╝██║   ██║██╔██╗ ██║
-██║     ██╔══██║██╔══██║██╔══██╗██║   ██║██║╚██╗██║
-╚██████╗██║  ██║██║  ██║██║  ██║╚██████╔╝██║ ╚████║
- ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
- ⛴  ferry your AI tools between endpoints · q to quit
-```
+Running `charon` opens an interactive arrow-key menu for picking a tool and
+switching profiles.
 
 ## What it manages
 
@@ -100,7 +91,7 @@ charon save <tool> <name>  # snapshot current live config as a profile
 charon models <tool>       # list models offered by an API (--key [--endpoint])
 charon add <tool>          # add+activate a profile (--name --key [--endpoint --model])
 charon switch <tool> <p>   # apply a saved profile (backs up current first)
-charon restore <tool>      # revert to the auto-captured original
+charon restore <tool>      # revert to the auto-captured default
 charon rm <tool> <p>       # delete a profile
 ```
 
@@ -149,7 +140,7 @@ ran.
   - `profiles/<tool>/<name>/` — snapshot files + `manifest.json`.
   - `backups/<tool>/<timestamp>/` — auto-backup taken before every switch.
   - `config.json` — active profile per tool.
-- **`original`** is captured automatically the first time a detected tool is
+- **`default`** is captured automatically the first time a detected tool is
   seen, so reverting is always possible and never overwritten.
 - Writes are **atomic** (temp file → `rename`) and credential files/dirs are
   `0600`/`0700`.

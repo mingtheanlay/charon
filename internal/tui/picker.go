@@ -15,7 +15,7 @@ import (
 )
 
 // minLoadDuration is the floor the loading screen stays up so a fast fetch doesn't flicker.
-const minLoadDuration = 2 * time.Second
+const minLoadDuration = 1 * time.Second
 
 // fetchedMsg carries the async result of a models.Fetch call.
 type fetchedMsg struct {

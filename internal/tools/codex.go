@@ -105,8 +105,17 @@ func newCodex() *Tool {
 						APIKey   string `json:"OPENAI_API_KEY"`
 					}
 					if json.Unmarshal(data, &auth) == nil {
-						info.AuthMode = auth.AuthMode
 						info.Secret = auth.APIKey
+						// Codex writes "chatgpt" for an OAuth login and "apikey" for a key;
+						// present them as the friendlier "oauth"/"api".
+						switch auth.AuthMode {
+						case "chatgpt":
+							info.AuthMode = "oauth"
+						case "apikey":
+							info.AuthMode = "api"
+						default:
+							info.AuthMode = auth.AuthMode
+						}
 						if info.AuthMode == "" && auth.APIKey != "" {
 							info.AuthMode = "api"
 						}

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"charon/internal/profile"
 	"charon/internal/secret"
@@ -17,7 +18,6 @@ const (
 	fieldURL   = "\x00url"
 	fieldToken = "\x00token"
 	fieldModel = "\x00model"
-	fieldSave  = "\x00save"
 )
 
 type wizard struct {
@@ -61,16 +61,15 @@ func (m *model) loadEditForm() {
 		item{title: "Name", desc: m.wiz.name, value: fieldName},
 		item{title: "URL", desc: endpoint, value: fieldURL},
 		item{title: "Token", desc: token, value: fieldToken},
-		item{title: "Model", desc: modelVal + "  (enter to fetch & pick)", value: fieldModel},
-		item{title: "✓ Save changes", desc: "apply and switch to this profile", value: fieldSave},
+		item{title: "Model", desc: modelVal + "  (e to fetch & pick)", value: fieldModel},
 	})
 	m.list.Title = fmt.Sprintf("Edit %s / %s", m.tool.Title, m.wiz.name)
 	// Land on the field last visited; a fresh edit falls back to the first row.
 	m.list.Select(0)
 	m.selectByValue(m.editField)
 	m.setHelpKeys(
-		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit field")),
-		keyBack,
+		key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit field")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "save & back")),
 	)
 }
 
@@ -104,8 +103,6 @@ func (m model) onEditFormSelect(field string) (tea.Model, tea.Cmd) {
 		m.fromForm = true
 		cmd := m.beginFetch()
 		return m, cmd
-	case fieldSave:
-		return m.finishAdd(m.wiz.name)
 	}
 	return m, nil
 }
@@ -129,15 +126,18 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			refetch := false
 			switch m.editField {
 			case fieldName:
+				val = strings.TrimSpace(val)
 				if val != "" {
 					m.wiz.name = val
 				}
 			case fieldURL:
+				val = strings.TrimSpace(val)
 				if m.wiz.endpoint != val {
 					m.wiz.endpoint = val
 					refetch = true
 				}
 			case fieldToken:
+				val = strings.TrimSpace(val)
 				if m.wiz.key != val {
 					m.wiz.key = val
 					refetch = true
@@ -152,27 +152,15 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.loadEditForm()
 			return m, nil
 
-		case viewSaveName:
-			if val == "" {
-				m.setStatus(statusInfo, "name required")
-				return m, nil
-			}
-			if err := m.store.Save(m.tool, val, val, ""); err != nil {
-				m.setStatus(statusErr, err.Error())
-			} else {
-				m.setStatus(statusOK, "Saved current config as "+val)
-			}
-			m.view = viewProfiles
-			m.loadProfiles()
-			return m, nil
-
 		case viewAddEndpoint:
+			val = strings.TrimSpace(val)
 			m.wiz.endpoint = m.tool.ResolveEndpoint(val) // blank accepts the provider default
 			m.view = viewAddKey
 			m.startInput("API key", true)
 			return m, textinput.Blink
 
 		case viewAddKey:
+			val = strings.TrimSpace(val)
 			if val == "" {
 				m.setStatus(statusInfo, "key required")
 				return m, nil
@@ -182,6 +170,7 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case viewAddName:
+			val = strings.TrimSpace(val)
 			if val == "" {
 				m.setStatus(statusInfo, "name required")
 				return m, nil
@@ -208,7 +197,7 @@ func (m model) updateConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.loadProfiles()
 		return m, nil
-	case "n", "N", "esc", "q":
+	case "n", "N", "esc":
 		m.delTarget = ""
 		m.view = viewProfiles
 		m.setStatus(statusInfo, "cancelled")

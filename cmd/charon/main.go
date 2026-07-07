@@ -32,7 +32,7 @@ func run(args []string) error {
 	}
 	// Capture the pristine config of every detected tool on first sight.
 	for _, t := range tools.All() {
-		if err := store.EnsureOriginal(t); err != nil {
+		if err := store.EnsureDefault(t); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not snapshot %s: %v\n", t.Name, err)
 		}
 	}
@@ -49,7 +49,7 @@ func run(args []string) error {
 	case "switch", "use":
 		return cmdSwitch(store, args[1:])
 	case "restore":
-		return cmdSwitch(store, append([]string{argAt(args, 1)}, profile.OriginalName))
+		return cmdSwitch(store, append([]string{argAt(args, 1)}, profile.DefaultName))
 	case "save":
 		return cmdSave(store, args[1:])
 	case "models":
@@ -230,7 +230,7 @@ Usage:
   charon models <tool>       list models from an API (--key, --endpoint)
   charon add <tool>          add+activate a profile (--name --key [--endpoint --model])
   charon switch <tool> <p>   apply a saved profile (backs up current first)
-  charon restore <tool>      revert to the auto-captured original
+  charon restore <tool>      revert to the auto-captured default
   charon rm <tool> <p>       delete a saved profile
 
 Tools: codex, claude, opencode

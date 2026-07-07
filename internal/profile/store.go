@@ -1,5 +1,5 @@
 // Package profile stores and applies named snapshots of each tool's auth surface,
-// with automatic backups and an always-available "original".
+// with automatic backups and an always-available "default".
 package profile
 
 import (
@@ -13,8 +13,11 @@ import (
 	"charon/internal/tools"
 )
 
-// OriginalName is the reserved profile capturing config as first seen by charon.
-const OriginalName = "original"
+// DefaultName is the reserved profile capturing config as first seen by charon.
+const DefaultName = "default"
+
+// legacyDefaultName is the pre-rename name of DefaultName, migrated on sight.
+const legacyDefaultName = "original"
 
 // Spec is the endpoint/key/model a profile was created from, so the edit form can prefill.
 type Spec struct {
@@ -94,7 +97,7 @@ func (s *Store) setActive(tool, name string) error {
 // SetActiveName marks a profile active without applying files (used right after Save).
 func (s *Store) SetActiveName(tool, name string) error { return s.setActive(tool, name) }
 
-// List returns stored profile names for a tool, "original" first.
+// List returns stored profile names for a tool, "default" first.
 func (s *Store) List(tool string) []string {
 	entries, err := os.ReadDir(s.toolDir(tool))
 	if err != nil {
@@ -107,10 +110,10 @@ func (s *Store) List(tool string) []string {
 		}
 	}
 	sort.Slice(names, func(i, j int) bool {
-		if names[i] == OriginalName {
+		if names[i] == DefaultName {
 			return true
 		}
-		if names[j] == OriginalName {
+		if names[j] == DefaultName {
 			return false
 		}
 		return names[i] < names[j]
@@ -194,19 +197,44 @@ func (s *Store) GetSpec(tool, name string) (Spec, bool) {
 	return *m.Spec, true
 }
 
-// EnsureOriginal captures the "original" profile the first time a tool is seen, so revert always works.
-func (s *Store) EnsureOriginal(t *tools.Tool) error {
-	if s.Exists(t.Name, OriginalName) {
+// EnsureDefault captures the "default" profile the first time a tool is seen, so revert always works.
+func (s *Store) EnsureDefault(t *tools.Tool) error {
+	if err := s.migrateLegacyDefault(t.Name); err != nil {
+		return err
+	}
+	if s.Exists(t.Name, DefaultName) {
 		return nil
 	}
 	if t.Detected == nil || !t.Detected() {
 		return nil
 	}
-	if err := s.Save(t, OriginalName, "Original (auto-captured)", ""); err != nil {
+	if err := s.Save(t, DefaultName, "Default (auto-captured)", ""); err != nil {
 		return err
 	}
 	if s.Active(t.Name) == "" {
-		return s.setActive(t.Name, OriginalName)
+		return s.setActive(t.Name, DefaultName)
+	}
+	return nil
+}
+
+// migrateLegacyDefault renames a pre-existing "original" profile to "default"
+// (updating the active pointer), so upgrading users don't end up with both.
+func (s *Store) migrateLegacyDefault(tool string) error {
+	if !s.Exists(tool, legacyDefaultName) || s.Exists(tool, DefaultName) {
+		return nil
+	}
+	if err := os.Rename(s.profDir(tool, legacyDefaultName), s.profDir(tool, DefaultName)); err != nil {
+		return err
+	}
+	// Refresh the stale "Original (auto-captured)" label to match the new name.
+	if m, err := s.LoadManifest(tool, DefaultName); err == nil {
+		m.Label = "Default (auto-captured)"
+		if data, err := json.MarshalIndent(m, "", "  "); err == nil {
+			_ = os.WriteFile(filepath.Join(s.profDir(tool, DefaultName), "manifest.json"), data, 0o600)
+		}
+	}
+	if s.Active(tool) == legacyDefaultName {
+		return s.setActive(tool, DefaultName)
 	}
 	return nil
 }
@@ -248,10 +276,10 @@ func (s *Store) Apply(t *tools.Tool, name string) (backupDir string, err error) 
 	return backupDir, s.setActive(t.Name, name)
 }
 
-// Remove deletes a stored profile (the original cannot be removed).
+// Remove deletes a stored profile (the default cannot be removed).
 func (s *Store) Remove(tool, name string) error {
-	if name == OriginalName {
-		return fmt.Errorf("the original profile cannot be removed")
+	if name == DefaultName {
+		return fmt.Errorf("the default profile cannot be removed")
 	}
 	return os.RemoveAll(s.profDir(tool, name))
 }

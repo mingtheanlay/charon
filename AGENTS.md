@@ -47,7 +47,7 @@ internal/tools/   per-tool adapters + the artifact abstraction
   artifact.go       Artifact interface; FileArtifact + KeychainArtifact
   edit.go           JSON/TOML load-merge-write helpers (preserve unknown keys)
   codex.go / claude.go / opencode.go   one file per tool
-internal/profile/ snapshot store: Save / EnsureOriginal / Apply / backups
+internal/profile/ snapshot store: Save / EnsureDefault / Apply / backups
 internal/models/  fetch model lists from a provider API (openai/anthropic wire)
 internal/secret/  masking + platform keychain (darwin vs. other build tags)
 internal/tui/     bubbletea interactive menu
