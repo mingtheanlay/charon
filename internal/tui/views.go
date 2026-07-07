@@ -28,7 +28,7 @@ func (m model) View() string {
 		return m.wizardHeader() +
 			promptStyle.Render(m.spinner.View()+m.loadingMsg) +
 			"\n\n" + hintStyle.Render("fetching models from "+m.wiz.endpoint)
-	case viewAddEndpoint, viewAddKey, viewAddName, viewEditField:
+	case viewAddEndpoint, viewAddKey, viewAddName, viewDupName, viewEditField:
 		body := m.wizardHeader() +
 			promptStyle.Render(m.prompt()) +
 			"\n\n  " + m.input.View() +
@@ -81,6 +81,8 @@ func (m model) prompt() string {
 		return "API key — input is hidden as you type:"
 	case viewAddName:
 		return "Name this profile (e.g. work, openrouter-fast):"
+	case viewDupName:
+		return "Name the duplicate of " + m.dupSource + ":"
 	default:
 		return ""
 	}

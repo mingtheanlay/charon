@@ -6,6 +6,11 @@ version: 2
 before:
   hooks:
     - go mod tidy
+    # Generate shell completions from the CLI itself, bundled into each archive.
+    - mkdir -p completions
+    - sh -c 'go run ./cmd/charon completion bash > completions/charon.bash'
+    - sh -c 'go run ./cmd/charon completion zsh  > completions/charon.zsh'
+    - sh -c 'go run ./cmd/charon completion fish > completions/charon.fish'
 
 builds:
   - id: charon
@@ -26,6 +31,10 @@ archives:
   - id: charon
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - completions/*
 
 checksum:
   name_template: "checksums.txt"
@@ -44,6 +53,11 @@ brews:
     caveats: |
       Not using Homebrew? Install with one line on Linux or macOS:
         curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/install.sh | sh
+    # Install the bundled shell completions alongside the binary.
+    extra_install: |
+      bash_completion.install "completions/charon.bash" => "charon"
+      zsh_completion.install "completions/charon.zsh" => "_charon"
+      fish_completion.install "completions/charon.fish"
     # Sanity check that the installed binary runs.
     test: |
       system "#{bin}/charon", "--help"

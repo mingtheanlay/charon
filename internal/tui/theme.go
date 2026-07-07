@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"io"
+	"strings"
+
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
@@ -53,8 +56,27 @@ func newSpinner() spinner.Model {
 	return s
 }
 
-// themedDelegate is the list delegate in the Charon palette, with a one-line row gap.
-func themedDelegate() list.DefaultDelegate {
+// charonDelegate is the palette delegate that additionally draws the sepSentinel
+// row as a single dim rule — a tight, visible divider between data and action rows.
+type charonDelegate struct {
+	list.DefaultDelegate
+}
+
+// dividerWidth caps the rule at a modest width so it reads as a separator, not a border.
+const dividerWidth = 18
+
+func (d charonDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+	if it, ok := listItem.(item); ok && it.value == sepSentinel {
+		rule := lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 0, 0, 1).
+			Render(strings.Repeat("─", dividerWidth))
+		_, _ = io.WriteString(w, rule)
+		return
+	}
+	d.DefaultDelegate.Render(w, m, index, listItem)
+}
+
+// baseDelegate is the shared list styling in the Charon palette, with a one-line row gap.
+func baseDelegate() list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
 	d.SetSpacing(1)
 
@@ -72,10 +94,15 @@ func themedDelegate() list.DefaultDelegate {
 	return d
 }
 
+// themedDelegate is the two-line row delegate (title + description).
+func themedDelegate() charonDelegate {
+	return charonDelegate{DefaultDelegate: baseDelegate()}
+}
+
 // themedCompactDelegate is the same palette with single-line rows (no description),
 // keeping the one-line row gap so spacing stays consistent with the other screens.
-func themedCompactDelegate() list.DefaultDelegate {
-	d := themedDelegate()
+func themedCompactDelegate() charonDelegate {
+	d := baseDelegate()
 	d.ShowDescription = false
-	return d
+	return charonDelegate{DefaultDelegate: d}
 }

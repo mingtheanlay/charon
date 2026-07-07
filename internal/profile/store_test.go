@@ -68,42 +68,6 @@ func TestEnsureDefaultAndActive(t *testing.T) {
 	}
 }
 
-func TestEnsureDefaultMigratesLegacyOriginal(t *testing.T) {
-	dir := t.TempDir()
-	tool, cfg, auth := fakeTool(dir)
-	write(t, cfg, "c1")
-	write(t, auth, "a1")
-
-	s := newStore(t)
-	// Simulate a pre-rename install: a captured "original" that is active.
-	if err := s.Save(tool, legacyDefaultName, "Original (auto-captured)", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.setActive("fake", legacyDefaultName); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := s.EnsureDefault(tool); err != nil {
-		t.Fatal(err)
-	}
-	// The legacy profile must be renamed, not duplicated.
-	if s.Exists("fake", legacyDefaultName) {
-		t.Error("legacy original profile still exists after migration")
-	}
-	if !s.Exists("fake", DefaultName) {
-		t.Fatal("default profile missing after migration")
-	}
-	if names := s.List("fake"); len(names) != 1 {
-		t.Errorf("List = %v, want a single default profile", names)
-	}
-	if s.Active("fake") != DefaultName {
-		t.Errorf("active = %q, want default", s.Active("fake"))
-	}
-	if m, err := s.LoadManifest("fake", DefaultName); err != nil || m.Label != "Default (auto-captured)" {
-		t.Errorf("label = %q, want refreshed default label (err=%v)", m.Label, err)
-	}
-}
-
 func TestSaveSwitchRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	tool, cfg, auth := fakeTool(dir)
@@ -225,5 +189,315 @@ func TestRemoveProfile(t *testing.T) {
 	}
 	if err := s.Remove("fake", DefaultName); err == nil {
 		t.Error("removing default should fail")
+	}
+}
+
+func TestSanitizeProfileName(t *testing.T) {
+	cases := map[string]string{
+		"alice@work.com":    "alice@work.com",
+		"a b/c":             "a-b-c",
+		"  spaced  ":        "spaced",
+		"user+tag@x.io":     "user-tag@x.io",
+		"acc_123.default-x": "acc_123.default-x",
+		"///":               "",
+		"":                  "",
+		"多 bytes":           "bytes",
+	}
+	for in, want := range cases {
+		if got := sanitizeProfileName(in); got != want {
+			t.Errorf("sanitizeProfileName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSaveCurrentAccount(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	write(t, cfg, "live")
+	tool.Describe = func() (tools.Info, error) {
+		return tools.Info{Account: "alice@work.com"}, nil
+	}
+
+	s := newStore(t)
+	name, err := s.SaveCurrentAccount(tool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "alice@work.com" {
+		t.Errorf("name = %q, want alice@work.com", name)
+	}
+	if !s.Exists("fake", "alice@work.com") {
+		t.Error("account profile not saved")
+	}
+	if s.Active("fake") != "alice@work.com" {
+		t.Errorf("active = %q, want alice@work.com", s.Active("fake"))
+	}
+	m, err := s.LoadManifest("fake", "alice@work.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Account != "alice@work.com" {
+		t.Errorf("manifest account = %q, want alice@work.com", m.Account)
+	}
+}
+
+func TestSaveCurrentAccountNoAccount(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	write(t, cfg, "live")
+	tool.Describe = func() (tools.Info, error) { return tools.Info{}, nil }
+
+	s := newStore(t)
+	if _, err := s.SaveCurrentAccount(tool); err == nil {
+		t.Error("expected error when no account is detected")
+	}
+}
+
+func TestUndoRevertsToPreSwitchState(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, auth := fakeTool(dir)
+	write(t, cfg, "c1")
+	write(t, auth, "a1")
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil { // default = c1/a1, active=default
+		t.Fatal(err)
+	}
+	// A second profile with different contents.
+	write(t, cfg, "c2")
+	write(t, auth, "a2")
+	if err := s.Save(tool, "two", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	write(t, cfg, "c1")
+	write(t, auth, "a1")
+
+	// Switch to "two": backs up the current (default) state, then makes two live.
+	if _, err := s.Apply(tool, "two"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != "c2" {
+		t.Fatalf("after switch cfg = %q, want c2", got)
+	}
+
+	// Undo restores the pre-switch (default) state and the active pointer with it.
+	restored, err := s.Undo(tool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored == "" {
+		t.Error("Undo returned empty restore path")
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != "c1" {
+		t.Errorf("after undo cfg = %q, want c1", got)
+	}
+	if s.Active("fake") != DefaultName {
+		t.Errorf("after undo active = %q, want default", s.Active("fake"))
+	}
+}
+
+func TestUndoNoBackups(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	write(t, cfg, "c")
+	s := newStore(t)
+	if _, err := s.Undo(tool); err == nil {
+		t.Error("expected error undoing with no backups")
+	}
+}
+
+func TestPruneBackups(t *testing.T) {
+	s := newStore(t)
+	base := filepath.Join(s.Root, "backups", "fake")
+	for _, stamp := range []string{"20200101-000001", "20200101-000002", "20200101-000003", "20200101-000004"} {
+		if err := os.MkdirAll(filepath.Join(base, stamp), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := s.PruneBackups("fake", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 2 {
+		t.Errorf("removed = %d, want 2", removed)
+	}
+	if got := s.countBackups("fake"); got != 2 {
+		t.Errorf("remaining = %d, want 2", got)
+	}
+	// The two newest must be the survivors.
+	for _, stamp := range []string{"20200101-000003", "20200101-000004"} {
+		if _, err := os.Stat(filepath.Join(base, stamp)); err != nil {
+			t.Errorf("expected %s to survive prune", stamp)
+		}
+	}
+}
+
+func TestApplyCapsBackups(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	write(t, cfg, "c1")
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(tool, "two", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	// Manufacture more old backups than the cap, then a switch must prune them.
+	base := filepath.Join(s.Root, "backups", "fake")
+	for i := 0; i < backupKeep+3; i++ {
+		if err := os.MkdirAll(filepath.Join(base, "20200101-0000"+string(rune('0'+i%10))+string(rune('a'+i))), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Apply(tool, "two"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.countBackups("fake"); got > backupKeep {
+		t.Errorf("backups = %d, want <= %d", got, backupKeep)
+	}
+}
+
+func TestDriftDetectsExternalChange(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, auth := fakeTool(dir)
+	write(t, cfg, "c1")
+	write(t, auth, "a1")
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	// Freshly captured: live matches the active snapshot.
+	if drift, err := s.Drift(tool); err != nil || drift {
+		t.Fatalf("drift = %v, err = %v; want false, nil", drift, err)
+	}
+	// An external edit to the live config must register as drift.
+	write(t, cfg, "changed-outside-charon")
+	if drift, err := s.Drift(tool); err != nil || !drift {
+		t.Fatalf("drift = %v, err = %v; want true, nil", drift, err)
+	}
+	// Re-applying the profile clears the drift.
+	if _, err := s.Apply(tool, DefaultName); err != nil {
+		t.Fatal(err)
+	}
+	if drift, _ := s.Drift(tool); drift {
+		t.Error("drift should be cleared after re-apply")
+	}
+}
+
+func TestDriftOnRemovedArtifact(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, auth := fakeTool(dir)
+	write(t, cfg, "c1")
+	write(t, auth, "a1")
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(auth); err != nil { // artifact disappeared since the snapshot
+		t.Fatal(err)
+	}
+	if drift, _ := s.Drift(tool); !drift {
+		t.Error("removing a captured artifact should be drift")
+	}
+}
+
+func TestRename(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	write(t, cfg, "c")
+	s := newStore(t)
+	if err := s.Save(tool, "old", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetActiveName("fake", "old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Rename("fake", "old", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if s.Exists("fake", "old") {
+		t.Error("old profile should be gone")
+	}
+	if !s.Exists("fake", "new") {
+		t.Error("new profile should exist")
+	}
+	if s.Active("fake") != "new" {
+		t.Errorf("active = %q, want new (pointer should follow rename)", s.Active("fake"))
+	}
+}
+
+func TestRenameGuards(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	write(t, cfg, "c")
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Save(tool, "a", "", "")
+	_ = s.Save(tool, "b", "", "")
+	if err := s.Rename("fake", DefaultName, "x"); err == nil {
+		t.Error("renaming default should fail")
+	}
+	if err := s.Rename("fake", "a", "b"); err == nil {
+		t.Error("renaming onto an existing name should fail")
+	}
+	if err := s.Rename("fake", "a", DefaultName); err == nil {
+		t.Error("renaming to the reserved default name should fail")
+	}
+	if err := s.Rename("fake", "missing", "x"); err == nil {
+		t.Error("renaming a missing profile should fail")
+	}
+}
+
+func TestDuplicate(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	write(t, cfg, "proxy-config")
+	s := newStore(t)
+	// A proxy profile with a spec.
+	if err := s.SaveWithSpec(tool, "proxy", Spec{Endpoint: "https://p/v1", Key: "sk-x", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.SetActiveName("fake", "proxy")
+	activeBefore := s.Active("fake")
+
+	if err := s.Duplicate("fake", "proxy", "proxy-2"); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Exists("fake", "proxy-2") {
+		t.Fatal("duplicate not created")
+	}
+	// The copy carries the spec (so it stays editable) and a fresh label.
+	if sp, ok := s.GetSpec("fake", "proxy-2"); !ok || sp.Endpoint != "https://p/v1" {
+		t.Errorf("duplicate spec = %+v, ok=%v; want the source spec", sp, ok)
+	}
+	if m, _ := s.LoadManifest("fake", "proxy-2"); m.Label != "proxy-2" {
+		t.Errorf("label = %q, want proxy-2", m.Label)
+	}
+	// Duplication must not change which profile is active or the live config.
+	if s.Active("fake") != activeBefore {
+		t.Errorf("active changed to %q, want %q", s.Active("fake"), activeBefore)
+	}
+}
+
+func TestDuplicateGuards(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	write(t, cfg, "c")
+	s := newStore(t)
+	_ = s.EnsureDefault(tool)
+	_ = s.Save(tool, "a", "", "")
+
+	if err := s.Duplicate("fake", "a", "a"); err == nil {
+		t.Error("duplicating onto an existing name should fail")
+	}
+	if err := s.Duplicate("fake", "a", DefaultName); err == nil {
+		t.Error("duplicating onto the reserved default name should fail")
+	}
+	if err := s.Duplicate("fake", "missing", "x"); err == nil {
+		t.Error("duplicating a missing source should fail")
 	}
 }

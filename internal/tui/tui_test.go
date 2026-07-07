@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/bubbles/list"
 )
 
 func TestStatusRender(t *testing.T) {
@@ -110,5 +112,31 @@ func TestWizardStepsAreSequential(t *testing.T) {
 		if n != i+1 {
 			t.Errorf("view %v: step = %d, want %d", v, n, i+1)
 		}
+	}
+}
+
+func TestSkipSeparators(t *testing.T) {
+	l := list.New([]list.Item{
+		item{title: "p1", value: "p1"},
+		item{value: sepSentinel},
+		item{title: "＋ Add", value: addSentinel},
+	}, themedDelegate(), 40, 20)
+	m := &model{list: l, view: viewProfiles}
+
+	// Moving down onto the divider (idx 1) should continue to the action row (idx 2).
+	m.list.Select(0)
+	before := m.list.Index()
+	m.list.CursorDown()
+	m.skipSeparators(before)
+	if got := m.list.Index(); got != 2 {
+		t.Errorf("down: index = %d, want 2 (divider skipped)", got)
+	}
+
+	// Moving up onto the divider should continue back to the profile (idx 0).
+	before = m.list.Index()
+	m.list.CursorUp()
+	m.skipSeparators(before)
+	if got := m.list.Index(); got != 0 {
+		t.Errorf("up: index = %d, want 0 (divider skipped)", got)
 	}
 }

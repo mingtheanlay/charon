@@ -7,7 +7,9 @@ and switches each one's **endpoint + credentials** between named profiles.
 ## Golden rule: this tool edits real user credentials
 
 `charon` reads and writes live config for other tools (`~/.codex`, `~/.claude`,
-`~/.config/opencode`, `~/.local/share/opencode`) and the macOS Keychain.
+`~/.config/opencode`, `~/.local/share/opencode`) and the macOS Keychain. It also
+**reads** `~/.claude.json` (`oauthAccount.emailAddress`) solely to name an
+account-backup profile — that file is never written or snapshotted.
 
 - **Never** run `charon add`, `charon switch`, `charon save`, or the interactive menu
   against your real `$HOME` while developing. Always sandbox:

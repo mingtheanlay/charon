@@ -104,16 +104,42 @@ switch, add, edit, or delete profiles. Quit any time with `ctrl+c`.
 ### CLI reference
 
 ```sh
-charon                     # interactive arrow-key menu
-charon status              # show each tool's active profile, endpoint, and auth
-charon ls <tool>           # list saved profiles
-charon save <tool> <name>  # snapshot current live config as a profile
-charon models <tool>       # list models offered by an API (--key [--endpoint])
-charon add <tool>          # add + activate a profile (--name --key [--endpoint --model])
-charon switch <tool> <p>   # apply a saved profile (backs up current first)
-charon restore <tool>      # revert to the auto-captured default
-charon rm <tool> <p>       # delete a profile
+charon                       # interactive arrow-key menu
+charon status                # show each tool's active profile, endpoint, and auth (--json)
+charon ls <tool>             # list saved profiles (--json)
+charon save <tool> [name]    # snapshot current live config (omit name to use the logged-in account)
+charon models <tool>         # list models offered by an API (--key [--endpoint])
+charon add <tool>            # add + activate a profile (--name --key [--endpoint --model])
+charon edit <tool> <p>       # change a profile's endpoint/key/model (--name to rename)
+charon rename <tool> <o> <n> # rename a saved profile
+charon switch <tool> <p>     # apply a saved profile (backs up current first)
+charon restore <tool>        # revert to the auto-captured default
+charon undo <tool>           # revert to the most recent pre-switch backup
+charon prune <tool>          # delete old backups, keeping the newest (--keep N, default 10)
+charon rm <tool> <p>         # delete a profile
+charon completion <shell>    # print a bash/zsh/fish completion script
 ```
+
+`status` and `ls` accept `--json` for scripting and editor integrations. `status`
+also flags **`(modified)`** next to a tool whose live config changed outside Charon
+(e.g. a fresh `claude login`), so a stale active profile is easy to spot.
+
+### Shell completions
+
+Completions ship in the release archives and are installed automatically via
+Homebrew. To enable them manually:
+
+```sh
+# bash — add to ~/.bashrc
+source <(charon completion bash)
+# zsh — add to ~/.zshrc (ensure `compinit` runs)
+source <(charon completion zsh)
+# fish
+charon completion fish | source
+```
+
+They complete subcommands, tool names, and — for `switch`/`edit`/`rename`/`rm` —
+saved profile names.
 
 ## Adding & editing profiles
 
@@ -130,14 +156,44 @@ In the menu, drill into a tool and choose **＋ Add new profile…**. The wizard
 5. names the profile — writing the endpoint/key/model into the tool's live config
    and switching to it.
 
+### Backing up a logged-in account
+
+Already signed in to Codex or Claude Code with a real account? Charon can snapshot
+that session and **name the profile after the account** automatically:
+
+```sh
+codex login              # sign in as your work account
+charon save codex        # → saves & activates profile "you@work.com"
+
+codex login              # sign in as a second account
+charon save codex        # → saves & activates profile "you@personal.com"
+
+charon switch codex you@work.com   # hop back instantly
+```
+
+In the menu, drill into a tool and press **`b`** on a profile to back it up. What
+happens depends on the profile:
+
+- **A logged-in account** (the `default` login or any OAuth snapshot — no
+  editable endpoint/key) is captured and **named after its account email**
+  automatically. The email is read from the tool's own config — Codex's
+  `id_token`, Claude Code's `~/.claude.json` — purely to name the profile; that
+  file is only ever read, never modified. These login backups are **not editable**
+  (there's no endpoint/key to change); re-running `b` refreshes the snapshot.
+- **An API-proxy profile** (endpoint + key) is **duplicated**: Charon prompts for
+  a name, pre-filled with the next free `name-2`, validates it isn't a duplicate,
+  and the copy is a normal profile you can **edit and delete**.
+
+An API-key login has no account, so `charon save` still expects an explicit name.
+
 ### Editing an existing profile
 
 Press **`e`** on a profile to open its edit form, showing the current **Name**,
 **URL**, **Token** (masked), and **Model**. Press **`e`** on any field to change
 it — selecting **Model** re-fetches the endpoint's model list so you can pick a
 new one. Press **`esc`** to save your changes and switch to the profile; renaming
-is handled automatically. The auto-captured **`default`** profile is protected
-and cannot be edited or deleted.
+is handled automatically. The auto-captured **`default`** profile and login
+backups (which have no endpoint/key) are protected and cannot be edited.
 
 ### Non-interactively
 
@@ -160,7 +216,9 @@ different endpoint/key, `charon save codex proxy`; then hop between them with
 
 - **Storage:** `~/.config/charon/` (`$XDG_CONFIG_HOME` respected).
   - `profiles/<tool>/<name>/` — snapshot files + `manifest.json`.
-  - `backups/<tool>/<timestamp>/` — auto-backup taken before every switch.
+  - `backups/<tool>/<timestamp>/` — auto-backup taken before every switch, add,
+    or undo. `charon undo` reverts to the newest; the last 10 per tool are kept
+    (tune with `charon prune <tool> --keep N`).
   - `config.json` — active profile per tool.
 - **`default`** is captured automatically the first time a detected tool is seen,
   so reverting is always possible and it is never overwritten.

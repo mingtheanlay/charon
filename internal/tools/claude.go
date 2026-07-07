@@ -100,9 +100,29 @@ func newClaude() *Tool {
 				}
 			}
 
+			info.Account = claudeAccountEmail()
+
 			return info.withDefaults("api.anthropic.com (default)"), nil
 		},
 	}
+}
+
+// claudeAccountEmail reads the logged-in account's email from ~/.claude.json for
+// display/naming only — the file is never written or snapshotted. "" if absent.
+func claudeAccountEmail() string {
+	data, err := os.ReadFile(filepath.Join(home(), ".claude.json"))
+	if err != nil {
+		return ""
+	}
+	var c struct {
+		OAuthAccount struct {
+			EmailAddress string `json:"emailAddress"`
+		} `json:"oauthAccount"`
+	}
+	if json.Unmarshal(data, &c) != nil {
+		return ""
+	}
+	return c.OAuthAccount.EmailAddress
 }
 
 // normalizeClaudeBaseURL trims a trailing "/v1": Claude appends "/v1/messages", so a

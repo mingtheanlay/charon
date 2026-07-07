@@ -115,6 +115,7 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.loadEditForm()
 			return m, nil
 		}
+		m.dupSource = ""
 		m.view = viewProfiles
 		m.setStatus(statusInfo, "cancelled")
 		m.loadProfiles()
@@ -176,6 +177,23 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m.finishAdd(val)
+
+		case viewDupName:
+			val = strings.TrimSpace(val)
+			if val == "" {
+				m.setStatus(statusInfo, "name required")
+				return m, nil
+			}
+			src := m.dupSource
+			m.dupSource = ""
+			m.view = viewProfiles
+			if err := m.store.Duplicate(m.tool.Name, src, val); err != nil {
+				m.setStatus(statusErr, err.Error())
+			} else {
+				m.setStatus(statusOK, "Duplicated "+src+" → "+val)
+			}
+			m.loadProfiles()
+			return m, nil
 		}
 	}
 	var cmd tea.Cmd

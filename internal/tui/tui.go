@@ -38,6 +38,7 @@ const (
 	viewFetching      // wizard: fetching models
 	viewPickModel     // wizard: choose a model
 	viewAddName       // wizard: name the profile
+	viewDupName       // backup: name the duplicated proxy profile
 	viewEditForm      // edit: field picker (url/name/token/model)
 	viewEditField     // edit: single-field text input
 	viewConfirmDelete // confirm removing a profile (y/n)
@@ -55,7 +56,13 @@ const (
 const (
 	addSentinel = "\x00add"     // the "add new" list row
 	skipModel   = "\x00nomodel" // the "skip model" list row
+	sepSentinel = "\x00sep"     // a blank divider row (inert; cursor skips it)
 )
+
+// isSentinel reports whether v is a synthetic action row rather than a profile.
+func isSentinel(v string) bool {
+	return v == addSentinel || v == skipModel || v == sepSentinel
+}
 
 type item struct {
 	title, desc string
@@ -70,6 +77,7 @@ func (i item) FilterValue() string { return i.title }
 var (
 	keySwitch = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "switch"))
 	keyEdit   = key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit"))
+	keyBackup = key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "backup"))
 	keyDelete = key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete"))
 	keyBack   = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))
 	keyOpen   = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open"))
@@ -93,6 +101,7 @@ type model struct {
 	editField string // which field the single-field editor is editing
 	fromForm  bool   // model picker/fetch was launched from the edit form
 	delTarget string // profile name pending delete confirmation
+	dupSource string // profile being duplicated by the backup flow
 
 	spinner    spinner.Model
 	loadingMsg string      // playful line shown on the loading screen, picked per fetch
@@ -176,7 +185,7 @@ func (m *model) setHelpKeys(bindings ...key.Binding) {
 // inputView reports whether the current view is a text-entry step.
 func (m model) inputView() bool {
 	switch m.view {
-	case viewAddEndpoint, viewAddKey, viewAddName, viewEditField:
+	case viewAddEndpoint, viewAddKey, viewAddName, viewDupName, viewEditField:
 		return true
 	}
 	return false
@@ -206,6 +215,9 @@ func (m *model) loadTools() {
 			if active == "" {
 				active = "—"
 			}
+			if drift, _ := m.store.Drift(t); drift {
+				active += " ⚠"
+			}
 			desc = fmt.Sprintf("active: %s · %s · %s", active, info.AuthMode, info.Endpoint)
 		}
 		items = append(items, item{title: t.Title, desc: desc, value: t.Name})
@@ -224,24 +236,32 @@ func (m *model) loadProfiles() {
 	var items []list.Item
 	active := m.store.Active(m.tool.Name)
 	saved := m.store.List(m.tool.Name)
+	drift, _ := m.store.Drift(m.tool) // live config changed outside charon?
 	selectedIndex := 0
 	for i, name := range saved {
 		// ✓ marks the active profile; url and model show on the line below.
 		title := name
 		if name == active {
 			title = "✓ " + title
+			if drift {
+				title += "  ⚠ modified" // snapshot no longer matches live config
+			}
 			selectedIndex = i // land the cursor on the active profile
 		}
 		items = append(items, item{title: title, desc: m.profileDetail(name), value: name})
 	}
+	// The add row sits below the profiles, set off by a thin divider.
 	if m.tool.ApplyAuth != nil {
+		if len(saved) > 0 {
+			items = append(items, item{value: sepSentinel}) // gap between profiles and actions
+		}
 		items = append(items, item{title: "＋ Add new profile…", value: addSentinel})
 	}
 	m.list.SetDelegate(themedDelegate()) // two-line rows show each profile's url and model
 	m.list.SetItems(items)
 	m.list.Select(selectedIndex)
 	m.list.Title = m.tool.Title + " profiles"
-	m.setHelpKeys(keySwitch, keyEdit, keyDelete, keyBack)
+	m.setHelpKeys(keySwitch, keyEdit, keyBackup, keyDelete, keyBack)
 	// Welcome a first-time user who has no profiles for this tool yet.
 	if len(saved) == 0 && m.status == "" && m.tool.ApplyAuth != nil {
 		m.setStatus(statusInfo, `No profiles yet — press enter on "Add new profile" to create one.`)
@@ -329,12 +349,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.view == viewProfiles && m.tool.ApplyAuth != nil {
-				if it, ok := m.list.SelectedItem().(item); ok && it.value != addSentinel {
+				if it, ok := m.list.SelectedItem().(item); ok && !isSentinel(it.value) {
 					if it.value == profile.DefaultName {
 						m.setStatus(statusInfo, "the default profile can't be edited")
 						return m, nil
 					}
-					sp, _ := m.store.GetSpec(m.tool.Name, it.value)
+					sp, ok := m.store.GetSpec(m.tool.Name, it.value)
+					if !ok {
+						// OAuth / captured backups have no endpoint/key to change.
+						m.setStatus(statusInfo, "this login backup has no editable settings")
+						return m, nil
+					}
 					m.wiz = wizard{name: it.value, origName: it.value, edit: true,
 						endpoint: sp.Endpoint, key: sp.Key, model: sp.Model}
 					m.editField = "" // fresh edit starts on the first field
@@ -344,9 +369,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+		case "b":
+			if m.view == viewProfiles {
+				if it, ok := m.list.SelectedItem().(item); ok && !isSentinel(it.value) {
+					return m.startBackup(it.value)
+				}
+				return m, nil
+			}
 		case "d":
 			if m.view == viewProfiles {
-				if it, ok := m.list.SelectedItem().(item); ok && it.value != addSentinel {
+				if it, ok := m.list.SelectedItem().(item); ok && !isSentinel(it.value) {
 					if it.value == profile.DefaultName {
 						m.setStatus(statusInfo, "the default profile can't be deleted")
 						return m, nil
@@ -360,9 +392,60 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	before := m.list.Index()
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
+	if m.view == viewProfiles {
+		m.skipSeparators(before)
+	}
 	return m, cmd
+}
+
+// startBackup routes the "b" shortcut by profile type: an OAuth/original login is
+// snapshotted straight away, named after its account (non-editable); an API-proxy
+// profile opens a name prompt to make an editable, deletable duplicate.
+func (m model) startBackup(name string) (tea.Model, tea.Cmd) {
+	if _, ok := m.store.GetSpec(m.tool.Name, name); ok {
+		// API proxy → duplicate with a numbered name the user can adjust.
+		m.dupSource = name
+		m.view = viewDupName
+		m.startInput("new profile name", false)
+		m.input.SetValue(m.nextCopyName(name))
+		m.clearStatus()
+		return m, textinput.Blink
+	}
+	// OAuth / original login → capture the current account, named by its email.
+	saved, err := m.store.SaveCurrentAccount(m.tool)
+	if err != nil {
+		m.setStatus(statusErr, err.Error())
+	} else {
+		m.setStatus(statusOK, "Backed up login as "+saved)
+	}
+	m.loadProfiles()
+	return m, nil
+}
+
+// nextCopyName returns the first free "<base>-N" name (N starting at 2).
+func (m *model) nextCopyName(base string) string {
+	for i := 2; ; i++ {
+		cand := fmt.Sprintf("%s-%d", base, i)
+		if !m.store.Exists(m.tool.Name, cand) {
+			return cand
+		}
+	}
+}
+
+// skipSeparators nudges the cursor off an inert divider row after a move, continuing
+// in the direction of travel so the blank gap never traps the selection.
+func (m *model) skipSeparators(before int) {
+	if it, ok := m.list.SelectedItem().(item); !ok || it.value != sepSentinel {
+		return
+	}
+	if m.list.Index() >= before {
+		m.list.CursorDown()
+	} else {
+		m.list.CursorUp()
+	}
 }
 
 // startInput configures the text field for a step (password masks the echo).
@@ -406,6 +489,9 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 	it, ok := m.list.SelectedItem().(item)
 	if !ok {
 		return m, nil
+	}
+	if it.value == sepSentinel {
+		return m, nil // the blank divider is inert
 	}
 	switch m.view {
 	case viewTools:

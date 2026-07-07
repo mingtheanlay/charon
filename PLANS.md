@@ -5,6 +5,13 @@ Candidate features, ranked by value vs. effort. These lean on the existing
 
 ## High value, low effort
 
+### Account-named backups ✅ (done)
+`charon save <tool>` with no name snapshots the current OAuth login and names the
+profile after its account (Codex `id_token` email, Claude `~/.claude.json`), so a
+user with several ChatGPT/Claude accounts can capture and hop between each. In the
+TUI, **`b`** backs up the highlighted profile: a login is captured under its email
+(non-editable), while an API-proxy profile is duplicated to an editable `name-2`.
+
 ### More tools
 The whole point of the `Tool`/`Artifact` design is cheap additions. Each new
 tool is one `internal/tools/<tool>.go` returning a `*Tool` plus a
@@ -12,35 +19,33 @@ tool is one `internal/tools/<tool>.go` returning a `*Tool` plus a
 
 Targets: Gemini CLI, Aider, Cursor, Continue, Zed.
 
-### Backup pruning
-`Store.Apply` writes `backups/<tool>/<timestamp>/` on every switch and never
-cleans up, so backups grow without bound. Add retention (keep last N per tool)
-run automatically after a switch, plus a `charon prune` command.
+### Backup pruning ✅ (done)
+Every switch/add/undo now backs up first; retention keeps the newest 10 per tool
+automatically, with `charon prune <tool> [--keep N]` to trim on demand.
 
-### `charon undo`
-Every switch already snapshots the pre-switch state under `backups/`. Expose a
-one-command revert to the most recent backup — nearly free given the existing
-backup machinery.
+### `charon undo` ✅ (done)
+`charon undo <tool>` reverts to the most recent backup (restoring the active
+pointer too) and snapshots the current state first, so undo is itself reversible.
 
-### Shell completions
-Generate bash/zsh/fish completions at release time (goreleaser supports this).
-Big UX win for `charon switch <tool> <TAB>` and profile-name completion.
+### Shell completions ✅ (done)
+`charon completion <bash|zsh|fish>` prints a script (dynamic profile-name
+completion via the hidden `charon __profiles`); goreleaser generates and bundles
+them into release archives and installs them through the Homebrew formula.
 
 ## Medium
 
-### Drift detection
-Live config can be changed outside charon (e.g. `claude login`). Compare the
-active profile's snapshot against the current live artifacts and flag
-"modified since switch" in `status` and the TUI, so a stale active profile is
-visible.
+### Drift detection ✅ (done)
+`Store.Drift` compares the active profile's snapshot against the live artifacts;
+`status` shows `(modified)` and the TUI flags the active profile/tool with ⚠ when
+the live config changed outside charon.
 
-### `--json` output
-Add machine-readable output to `status` and `ls` for scripting and editor
-integrations.
+### `--json` output ✅ (done)
+`charon status --json` and `charon ls <tool> --json` emit structured records
+(secrets masked, never raw) for scripting and editor integrations.
 
-### CLI rename / edit
-The TUI can edit and rename profiles; add matching `charon` subcommands
-(`charon edit`, `charon rename`) so the CLI reaches parity.
+### CLI rename / edit ✅ (done)
+`charon rename <tool> <old> <new>` and `charon edit <tool> <p>
+[--endpoint --key --model --name]` bring the CLI to parity with the TUI.
 
 ## Deferred / handle with care
 

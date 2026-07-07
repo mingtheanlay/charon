@@ -1,6 +1,7 @@
 # Build artifacts
 /charon
 /dist/
+/completions/
 *.test
 *.out
 coverage.txt

@@ -122,18 +122,23 @@ func (m *model) renderModels() {
 		}
 		items = append(items, item{title: title, desc: "", value: id})
 	}
+	// A blank divider sets the skip row apart from the models (only when not searching).
+	if len(ids) > 0 && m.modelFilter == "" {
+		items = append(items, item{value: sepSentinel})
+	}
 	skipTitle := "(skip — no model override)"
 	if m.wiz.model == "" {
 		skipTitle = "✓ " + skipTitle
 	}
 	items = append(items, item{title: skipTitle, desc: "", value: skipModel})
+	skipIndex := len(items) - 1
 	m.list.SetDelegate(themedCompactDelegate())
 	m.list.SetItems(items)
 	// No search: land on the checked row; while searching, the best match is on top.
 	selectedIndex := 0
 	if m.modelFilter == "" {
 		if m.wiz.model == "" {
-			selectedIndex = len(ids) // the trailing skip row
+			selectedIndex = skipIndex // the trailing skip row
 		} else {
 			for i, id := range ids {
 				if id == m.wiz.model {
@@ -185,7 +190,9 @@ func (m model) updatePickModel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// Arrows, page keys, home/end, ctrl+n/ctrl+p: let the list move the cursor.
+	before := m.list.Index()
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
+	m.skipSeparators(before)
 	return m, cmd
 }

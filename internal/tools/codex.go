@@ -98,6 +98,22 @@ func newCodex() *Tool {
 				}
 			}
 
+			if data, err := os.ReadFile(authPath); err == nil {
+				var auth struct {
+					Tokens struct {
+						IDToken   string `json:"id_token"`
+						AccountID string `json:"account_id"`
+					} `json:"tokens"`
+				}
+				// A ChatGPT login carries a JWT whose "email" names the account.
+				if json.Unmarshal(data, &auth) == nil {
+					info.Account = decodeJWTEmail(auth.Tokens.IDToken)
+					if info.Account == "" {
+						info.Account = auth.Tokens.AccountID
+					}
+				}
+			}
+
 			if info.AuthMode == "" {
 				if data, err := os.ReadFile(authPath); err == nil {
 					var auth struct {

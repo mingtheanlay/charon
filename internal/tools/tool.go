@@ -12,6 +12,7 @@ type Info struct {
 	AuthMode string // "oauth", "chatgpt", "api", or "none"
 	Secret   string // raw secret, for masking only; never persisted here
 	Model    string // active model, if known
+	Account  string // logged-in account identity (email), if an OAuth login is detected; else ""
 }
 
 // withDefaults fills empty Endpoint/AuthMode with display fallbacks.
