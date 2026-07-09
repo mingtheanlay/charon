@@ -236,8 +236,9 @@ version may push secrets back into the Keychain instead.
 
 ```
 cmd/charon/          entrypoint + subcommands
-internal/tools/      per-tool adapters (codex, claude, opencode) + artifacts
-internal/profile/    snapshot store, apply, backups
+internal/artifact/   snapshot/restore primitives (Artifact interface + implementations)
+internal/tools/      per-tool adapters (codex, claude, opencode)
+internal/profile/    snapshot store (split by concern: snapshot, apply, backup, manage)
 internal/tui/        bubbletea interactive menu
 internal/secret/     masking + macOS keychain access
 ```
@@ -258,7 +259,6 @@ are never touched** — live in [AGENTS.md](AGENTS.md).
 
 ## Roadmap
 
-- `charon undo <tool>` — restore the most recent auto-backup.
 - Optional `--verify` post-switch auth ping to confirm credentials actually work.
 - Windows Keychain / Credential Manager support.
 - Support for more AI CLI tools.
