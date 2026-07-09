@@ -128,6 +128,31 @@ func TestMergedTOMLFileMergePreservesNonOwnedKeys(t *testing.T) {
 	}
 }
 
+func TestMergedFileArtifactPeek(t *testing.T) {
+	a := NewMergedJSONFile("settings.json", filepath.Join(t.TempDir(), "settings.json"), 0o600, "model", "effortLevel").
+		WithDisplay("model", "effortLevel")
+
+	model, effort := a.Peek([]byte(`{"model":"claude-haiku","effortLevel":"low","theme":"dark"}`))
+	if model != "claude-haiku" {
+		t.Errorf("model = %q, want claude-haiku", model)
+	}
+	if effort != "low" {
+		t.Errorf("effort = %q, want low", effort)
+	}
+
+	// Missing keys, and a file with no display keys configured, both report "".
+	if model, effort := a.Peek([]byte(`{"theme":"dark"}`)); model != "" || effort != "" {
+		t.Errorf("Peek with no model/effort keys = %q, %q; want empty", model, effort)
+	}
+	noDisplay := NewMergedJSONFile("x", filepath.Join(t.TempDir(), "x"), 0o600, "model")
+	if model, effort := noDisplay.Peek([]byte(`{"model":"m"}`)); model != "" || effort != "" {
+		t.Errorf("Peek without WithDisplay = %q, %q; want empty", model, effort)
+	}
+	if model, effort := a.Peek([]byte("not json")); model != "" || effort != "" {
+		t.Errorf("Peek on unparseable data = %q, %q; want empty", model, effort)
+	}
+}
+
 func TestAtomicWriteReplaces(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "f")
 	if err := atomicWrite(path, []byte("v1"), 0o644); err != nil {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // opencodeConfigPath returns the existing config (opencode.jsonc, else legacy
@@ -33,7 +34,8 @@ func newOpenCode() *Tool {
 		Artifacts: []Artifact{
 			// The config holds provider options.apiKey, so keep it private. Other top-level
 			// settings (e.g. theme) are CLI preferences, not per-profile auth — preserved live.
-			NewMergedJSONFile(filepath.Base(configPath), configPath, 0o600, "provider", "model"),
+			NewMergedJSONFile(filepath.Base(configPath), configPath, 0o600, "provider", "model").
+				WithDisplay("model", ""),
 			NewRotatingFile("auth.json", authPath, 0o600), // OAuth logins (e.g. github-copilot); OpenCode refreshes them in place
 		},
 		ApplyAuth: func(a AuthSpec) error {
@@ -106,24 +108,50 @@ func newOpenCode() *Tool {
 			}
 
 			// Otherwise fall back to a key stored in auth.json (login-based).
-			if info.AuthMode == "" {
-				if data, err := os.ReadFile(authPath); err == nil {
-					var auth map[string]struct {
-						Type string `json:"type"`
-						Key  string `json:"key"`
+			if data, err := os.ReadFile(authPath); err == nil {
+				var auth map[string]struct {
+					Type   string `json:"type"`
+					Key    string `json:"key"`
+					Access string `json:"access"` // oauth: access token, sometimes a JWT (e.g. ChatGPT via /connect)
+				}
+				if json.Unmarshal(data, &auth) == nil {
+					names := make([]string, 0, len(auth))
+					for name := range auth {
+						names = append(names, name)
 					}
-					if json.Unmarshal(data, &auth) == nil {
-						for name, p := range auth {
-							if p.Type == "api" && p.Key != "" {
+					sort.Strings(names) // map iteration order is random; keep this deterministic
+
+					if info.AuthMode == "" {
+						for _, name := range names {
+							if p := auth[name]; p.Type == "api" && p.Key != "" {
 								info.AuthMode, info.Secret = "api ("+name+")", p.Key
 								break
 							}
 						}
 						if info.AuthMode == "" {
-							for name, p := range auth {
-								info.AuthMode = p.Type + " (" + name + ")"
+							for _, name := range names {
+								info.AuthMode = auth[name].Type + " (" + name + ")"
 								break
 							}
+						}
+					}
+
+					// An oauth login's account identity must be detected independent of
+					// which entry AuthMode picked above — e.g. an unrelated "opencode" api
+					// key entry shouldn't hide a real ChatGPT/GitHub login for backup
+					// purposes. Prefer a JWT-decodable email (ChatGPT via /connect) over a
+					// bare provider name (e.g. github-copilot, whose token isn't a JWT).
+					for _, name := range names {
+						p := auth[name]
+						if p.Type != "oauth" {
+							continue
+						}
+						if info.Account == "" {
+							info.Account = name
+						}
+						if email := decodeJWTEmail(p.Access); email != "" {
+							info.Account = email
+							break
 						}
 					}
 				}

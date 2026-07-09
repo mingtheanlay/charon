@@ -36,9 +36,11 @@ func newCodex() *Tool {
 		DefaultEndpoint: "https://api.openai.com/v1",
 		Artifacts: []Artifact{
 			// Other config.toml settings (sandbox mode, approval policy, ...) are CLI
-			// preferences, not per-profile auth — preserved live.
+			// preferences, not per-profile auth — preserved live. model and
+			// model_reasoning_effort switch with the profile, matching Claude Code.
 			NewMergedTOMLFile("config.toml", configPath, 0o600,
-				"model", "model_context_window", "model_provider", "model_providers"),
+				"model", "model_context_window", "model_provider", "model_providers", "model_reasoning_effort").
+				WithDisplay("model", "model_reasoning_effort"),
 			NewRotatingFile("auth.json", authPath, 0o600), // ChatGPT OAuth tokens; Codex refreshes them in place
 		},
 		ApplyAuth: func(a AuthSpec) error {
@@ -81,15 +83,17 @@ func newCodex() *Tool {
 
 			if data, err := os.ReadFile(configPath); err == nil {
 				var cfg struct {
-					Model          string `toml:"model"`
-					ModelProvider  string `toml:"model_provider"`
-					ModelProviders map[string]struct {
+					Model                string `toml:"model"`
+					ModelReasoningEffort string `toml:"model_reasoning_effort"`
+					ModelProvider        string `toml:"model_provider"`
+					ModelProviders       map[string]struct {
 						BaseURL     string `toml:"base_url"`
 						BearerToken string `toml:"experimental_bearer_token"`
 					} `toml:"model_providers"`
 				}
 				if toml.Unmarshal(data, &cfg) == nil {
 					info.Model = cfg.Model
+					info.Effort = cfg.ModelReasoningEffort
 					if p, ok := cfg.ModelProviders[cfg.ModelProvider]; ok {
 						if p.BaseURL != "" {
 							info.Endpoint = p.BaseURL

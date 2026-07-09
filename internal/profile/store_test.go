@@ -80,6 +80,21 @@ func mergedTool(dir string) (*tools.Tool, string) {
 	}, cfg
 }
 
+// mergedToolWithDisplay is mergedTool plus an effortLevel owned key and Peek support
+// for both, so ProfileModelEffort can be exercised end to end.
+func mergedToolWithDisplay(dir string) (*tools.Tool, string) {
+	cfg := filepath.Join(dir, "settings.json")
+	return &tools.Tool{
+		Name:     "merged-display",
+		Title:    "Merged Display",
+		Detected: func() bool { _, err := os.Stat(cfg); return err == nil },
+		Artifacts: []tools.Artifact{
+			tools.NewMergedJSONFile("settings.json", cfg, 0o600, "model", "effortLevel").
+				WithDisplay("model", "effortLevel"),
+		},
+	}, cfg
+}
+
 // newStore roots the store in an isolated temp dir.
 func newStore(t *testing.T) *Store {
 	t.Helper()
@@ -261,6 +276,53 @@ func TestSwitchingAwayRefreshesRotatingArtifact(t *testing.T) {
 	}
 }
 
+// TestSwitchingAwayRefreshesOwnedKeysWithoutExplicitSave reproduces "I set /effort
+// low + haiku on acc1, then set /effort mid + opus on acc2 — does switching between
+// them save the config?": a profile-owned key (model/effort) changed live via /model
+// or /effort, with no explicit `charon save`, must still be captured into the
+// outgoing profile before it's left, the same way refreshKeychainArtifacts does for
+// rotating credentials.
+func TestSwitchingAwayRefreshesOwnedKeysWithoutExplicitSave(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg := mergedToolWithDisplay(dir)
+	write(t, cfg, `{"model":"claude-haiku","effortLevel":"low"}`)
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	write(t, cfg, `{"model":"claude-opus","effortLevel":"medium"}`)
+	if err := s.Save(tool, "acc2", "Acc2", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Back on "default" (still active): the user runs /model and /effort live,
+	// without ever calling `charon save`.
+	write(t, cfg, `{"model":"claude-sonnet","effortLevel":"high"}`)
+
+	// Switching to acc2 must capture that live edit into default's own snapshot first.
+	if _, err := s.Apply(tool, "acc2"); err != nil {
+		t.Fatal(err)
+	}
+	model, effort := s.ProfileModelEffort(tool, DefaultName)
+	if model != "claude-sonnet" || effort != "high" {
+		t.Errorf("default's captured model/effort = %q/%q, want claude-sonnet/high (the unsaved live edit)", model, effort)
+	}
+
+	// Switching back to default must restore that captured edit, not the original capture.
+	if _, err := s.Apply(tool, DefaultName); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(cfg)
+	var live map[string]any
+	if err := json.Unmarshal(got, &live); err != nil {
+		t.Fatal(err)
+	}
+	if live["model"] != "claude-sonnet" || live["effortLevel"] != "high" {
+		t.Errorf("live after restoring default = %v, want claude-sonnet/high", live)
+	}
+}
+
 // TestApplyPreservesLiveNonOwnedPreference reproduces "switching charon profiles
 // resets Claude Code's /model or /effort choice": settings.json mixes a profile-owned
 // field ("model") with a live CLI preference ("theme") that switching must not touch.
@@ -316,6 +378,47 @@ func TestDriftIgnoresLiveNonOwnedPreference(t *testing.T) {
 	write(t, cfg, `{"model":"changed-outside-charon","theme":"light"}`)
 	if drift, err := s.Drift(tool); err != nil || !drift {
 		t.Fatalf("drift = %v, err = %v; want true, nil (owned field changed)", drift, err)
+	}
+}
+
+// TestProfileModelEffortReflectsEachProfilesOwnCapture reproduces "acc1 uses haiku +
+// low effort, acc2 uses opus + medium effort, and switching between them should
+// remember each": both model and effortLevel are owned keys, so each profile's own
+// snapshot — not just whatever is live right now — must be readable independently.
+func TestProfileModelEffortReflectsEachProfilesOwnCapture(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg := mergedToolWithDisplay(dir)
+	write(t, cfg, `{"model":"claude-haiku","effortLevel":"low"}`)
+
+	s := newStore(t)
+	if err := s.Save(tool, "acc1", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	write(t, cfg, `{"model":"claude-opus","effortLevel":"medium"}`)
+	if err := s.Save(tool, "acc2", "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	model, effort := s.ProfileModelEffort(tool, "acc1")
+	if model != "claude-haiku" || effort != "low" {
+		t.Errorf("acc1: model=%q effort=%q, want claude-haiku/low", model, effort)
+	}
+	model, effort = s.ProfileModelEffort(tool, "acc2")
+	if model != "claude-opus" || effort != "medium" {
+		t.Errorf("acc2: model=%q effort=%q, want claude-opus/medium", model, effort)
+	}
+
+	// Switching to acc1 must restore its own model/effort, independent of acc2's.
+	if _, err := s.Apply(tool, "acc1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(cfg)
+	var after map[string]any
+	if err := json.Unmarshal(got, &after); err != nil {
+		t.Fatal(err)
+	}
+	if after["model"] != "claude-haiku" || after["effortLevel"] != "low" {
+		t.Errorf("live after switching to acc1 = %v, want haiku/low", after)
 	}
 }
 

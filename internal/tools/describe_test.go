@@ -55,6 +55,58 @@ func TestOpenCodeDescribeFallsBackToAuthJSONLogin(t *testing.T) {
 	if info.AuthMode != "oauth (anthropic)" {
 		t.Errorf("AuthMode = %q, want oauth (anthropic)", info.AuthMode)
 	}
+	// An oauth login carries no email, unlike Claude/Codex — the provider name is the
+	// account identity, so "back up this login" can name the profile automatically
+	// instead of failing with "no logged-in account detected".
+	if info.Account != "anthropic" {
+		t.Errorf("Account = %q, want anthropic (provider-name fallback for oauth logins)", info.Account)
+	}
+}
+
+// TestOpenCodeSaveCurrentAccountAfterProviderLogin reproduces "sign into a provider
+// for the default profile, then can't back it up": SaveCurrentAccount requires
+// Describe().Account to be non-empty, which used to never happen for OpenCode.
+func TestOpenCodeSaveCurrentAccountAfterProviderLogin(t *testing.T) {
+	sandboxHome(t)
+	writeFile(t, filepath.Join(home(), ".local", "share", "opencode", "auth.json"),
+		`{"github-copilot":{"type":"oauth","refresh":"r","access":"a","expires":0}}`)
+
+	info, err := Find("opencode").Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Account == "" {
+		t.Fatal("Account should be set after an oauth provider login, so backup can name the profile")
+	}
+	if info.Account != "github-copilot" {
+		t.Errorf("Account = %q, want github-copilot", info.Account)
+	}
+}
+
+// TestOpenCodeAccountDetectedDespiteUnrelatedAPIKeyEntry reproduces the real bug: a
+// user connects to ChatGPT via OpenCode's own `/connect`, but auth.json also has an
+// unrelated "opencode" api-key entry (OpenCode's own hosted-models login) — which
+// used to win AuthMode first and suppress Account detection entirely, so "back up
+// this login" never found an account to name the profile after.
+func TestOpenCodeAccountDetectedDespiteUnrelatedAPIKeyEntry(t *testing.T) {
+	sandboxHome(t)
+	// Matches the real shape of an OpenAI access token (as ChatGPT via /connect stores
+	// it): email nested under this OIDC profile claim, not a top-level "email".
+	jwt := makeJWT(t, map[string]any{
+		"https://api.openai.com/profile": map[string]any{"email": "user@example.com"},
+	})
+	writeFile(t, filepath.Join(home(), ".local", "share", "opencode", "auth.json"), `{
+		"opencode": {"type":"api","key":"sk-opencode-own-key"},
+		"openai": {"type":"oauth","access":"`+jwt+`","refresh":"r","expires":0}
+	}`)
+
+	info, err := Find("opencode").Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Account != "user@example.com" {
+		t.Errorf("Account = %q, want user@example.com (the ChatGPT oauth login's JWT email)", info.Account)
+	}
 }
 
 func TestOpenCodeDescribeFallsBackToNonCharonProviderEndpoint(t *testing.T) {

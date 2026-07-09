@@ -138,6 +138,29 @@ func (s *Store) LoadManifest(tool, name string) (Manifest, error) {
 	return m, json.Unmarshal(data, &m)
 }
 
+// ProfileModelEffort reads a stored profile's own config snapshot and returns its
+// captured model/effort — e.g. so the profile list can show each account's own
+// model and reasoning-effort level, not just whatever is live right now. Both are ""
+// if the tool's config artifact doesn't track them or the profile has no record.
+func (s *Store) ProfileModelEffort(t *tools.Tool, name string) (model, effort string) {
+	if !s.Exists(t.Name, name) {
+		return "", ""
+	}
+	dir := s.profDir(t.Name, name)
+	for _, a := range t.Artifacts {
+		peeker, ok := a.(tools.Peeker)
+		if !ok {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, a.ID()))
+		if err != nil {
+			continue
+		}
+		return peeker.Peek(data)
+	}
+	return "", ""
+}
+
 // snapshot captures the tool's current live artifacts into dir.
 func snapshot(t *tools.Tool, dir string, label, note, account, active string, spec *Spec) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -231,6 +254,7 @@ func (s *Store) AddProfile(t *tools.Tool, name string, spec Spec) error {
 	// Back up the current live config first so the write is reversible via undo.
 	if t.Detected != nil && t.Detected() {
 		s.refreshKeychainArtifacts(t)
+		s.refreshMergerArtifacts(t)
 		if _, err := s.backup(t, "auto-backup before adding "+name); err != nil {
 			return fmt.Errorf("backup failed, aborting: %w", err)
 		}
@@ -316,6 +340,42 @@ func (s *Store) refreshKeychainArtifacts(t *tools.Tool) {
 	}
 }
 
+// refreshMergerArtifacts overwrites the currently active profile's stored copy of any
+// Merger config-file artifact's owned keys (e.g. model, effort) with their current
+// live values, before that profile is left — so an in-session change like /model or
+// /effort isn't lost the next time this profile is restored, without requiring an
+// explicit `save` first. Mirrors refreshKeychainArtifacts for rotating credentials.
+func (s *Store) refreshMergerArtifacts(t *tools.Tool) {
+	active := s.Active(t.Name)
+	if active == "" || !s.Exists(t.Name, active) {
+		return
+	}
+	dir := s.profDir(t.Name, active)
+	for _, a := range t.Artifacts {
+		merger, ok := a.(tools.Merger)
+		if !ok {
+			continue
+		}
+		live, exists, err := a.Read()
+		if err != nil || !exists {
+			continue
+		}
+		storedPath := filepath.Join(dir, a.ID())
+		stored, err := os.ReadFile(storedPath)
+		if err != nil {
+			continue
+		}
+		// Merge(live, stored) keeps stored's shape but takes owned keys from live —
+		// the mirror image of restore, which keeps live's shape and takes owned keys
+		// from the snapshot.
+		refreshed, err := merger.Merge(live, stored)
+		if err != nil {
+			continue
+		}
+		_ = os.WriteFile(storedPath, refreshed, 0o600)
+	}
+}
+
 // backupKeep is how many timestamped backups to retain per tool after a switch/undo.
 const backupKeep = 10
 
@@ -343,6 +403,7 @@ func (s *Store) Undo(t *tools.Tool) (restoredFrom string, err error) {
 // and Undo so the backup→restore→prune sequence can't drift between them.
 func (s *Store) switchTo(t *tools.Tool, sourceDir, backupLabel, resultingActive string) (backupDir string, err error) {
 	s.refreshKeychainArtifacts(t)
+	s.refreshMergerArtifacts(t)
 	backupDir, err = s.backup(t, backupLabel)
 	if err != nil {
 		return "", fmt.Errorf("backup failed, aborting: %w", err)

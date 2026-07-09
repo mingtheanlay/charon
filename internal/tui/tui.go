@@ -280,24 +280,35 @@ func (m *model) loadProfiles() {
 	}
 }
 
-// profileDetail is the second-line summary of a profile: its endpoint and model
-// when recorded, falling back to the manifest label for captured profiles.
+// profileDetail is the second-line summary of a profile: its endpoint, model, and
+// reasoning-effort level when known, falling back to the manifest label for profiles
+// charon captured rather than created itself.
 func (m *model) profileDetail(name string) string {
-	if spec, ok := m.store.GetSpec(m.tool.Name, name); ok {
-		url := m.tool.ResolveEndpoint(spec.Endpoint)
-		if url == "" {
-			url = "default endpoint"
-		}
-		model := spec.Model
-		if model == "" {
-			model = "no model override"
-		}
-		return url + " · " + model
+	model, effort := m.store.ProfileModelEffort(m.tool, name)
+	spec, hasSpec := m.store.GetSpec(m.tool.Name, name)
+	if hasSpec && model == "" {
+		model = spec.Model
 	}
-	if man, err := m.store.LoadManifest(m.tool.Name, name); err == nil && man.Label != "" {
-		return man.Label
+	if !hasSpec && model == "" && effort == "" {
+		if man, err := m.store.LoadManifest(m.tool.Name, name); err == nil && man.Label != "" {
+			return man.Label
+		}
+		return "captured config"
 	}
-	return "captured config"
+	url := "default endpoint"
+	if hasSpec {
+		if u := m.tool.ResolveEndpoint(spec.Endpoint); u != "" {
+			url = u
+		}
+	}
+	if model == "" {
+		model = "no model override"
+	}
+	detail := url + " · " + model
+	if effort != "" {
+		detail += " · effort: " + effort
+	}
+	return detail
 }
 
 func (m model) Init() tea.Cmd { return nil }

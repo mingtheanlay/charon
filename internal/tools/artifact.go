@@ -45,6 +45,14 @@ type Merger interface {
 	Merge(snapshotData, liveData []byte) ([]byte, error)
 }
 
+// Peeker is implemented by an artifact that can report a human-readable model/effort
+// summary from a stored snapshot's raw bytes, without applying it — so the profile
+// list can show each profile's own captured model and reasoning effort.
+type Peeker interface {
+	// Peek returns data's model/effort values, each "" if not tracked or unset.
+	Peek(data []byte) (model, effort string)
+}
+
 // FileArtifact is a config or credential file owned by a tool.
 type FileArtifact struct {
 	id       string
@@ -107,6 +115,8 @@ func (f *FileArtifact) Remove() error {
 type MergedFileArtifact struct {
 	FileArtifact
 	ownedKeys []string
+	modelKey  string // top-level key holding the model id, "" if this file has none
+	effortKey string // top-level key holding the reasoning-effort level, "" if none
 	decode    func([]byte) (map[string]any, error)
 	encode    func(map[string]any) ([]byte, error)
 }
@@ -174,6 +184,33 @@ func (m *MergedFileArtifact) Merge(snapshotData, liveData []byte) ([]byte, error
 		}
 	}
 	return m.encode(merged)
+}
+
+// WithDisplay records which owned keys hold the model id and reasoning-effort level,
+// so Peek can surface them for the profile list. Pass "" for a field this file
+// doesn't track. Returns m for chaining onto the NewMerged*File call.
+func (m *MergedFileArtifact) WithDisplay(modelKey, effortKey string) *MergedFileArtifact {
+	m.modelKey, m.effortKey = modelKey, effortKey
+	return m
+}
+
+// Peek decodes data (a stored snapshot's bytes) and returns its model/effort values,
+// per the keys set via WithDisplay. Each is "" if untracked, unset, or unparseable.
+func (m *MergedFileArtifact) Peek(data []byte) (model, effort string) {
+	if m.modelKey == "" && m.effortKey == "" {
+		return "", ""
+	}
+	decoded, err := m.decode(data)
+	if err != nil {
+		return "", ""
+	}
+	if m.modelKey != "" {
+		model, _ = decoded[m.modelKey].(string)
+	}
+	if m.effortKey != "" {
+		effort, _ = decoded[m.effortKey].(string)
+	}
+	return model, effort
 }
 
 // atomicWrite writes data to path via a temp file + rename so a crash never

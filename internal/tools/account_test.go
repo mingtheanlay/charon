@@ -23,6 +23,13 @@ func TestDecodeJWTEmail(t *testing.T) {
 		name, token, want string
 	}{
 		{"email claim", makeJWT(t, map[string]any{"email": "alice@work.com"}), "alice@work.com"},
+		{"nested openai profile claim", makeJWT(t, map[string]any{
+			"https://api.openai.com/profile": map[string]any{"email": "bob@work.com"},
+		}), "bob@work.com"},
+		{"top-level email wins over nested profile claim", makeJWT(t, map[string]any{
+			"email":                          "top@work.com",
+			"https://api.openai.com/profile": map[string]any{"email": "nested@work.com"},
+		}), "top@work.com"},
 		{"no email claim", makeJWT(t, map[string]any{"sub": "123"}), ""},
 		{"empty", "", ""},
 		{"one segment", "abc", ""},

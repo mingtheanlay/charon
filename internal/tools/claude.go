@@ -21,8 +21,10 @@ func newClaude() *Tool {
 		Provider:        "anthropic",
 		DefaultEndpoint: "https://api.anthropic.com",
 		Artifacts: []Artifact{
-			// theme/effortLevel/etc. are CLI preferences, not per-profile auth — preserved live.
-			NewMergedJSONFile("settings.json", settingsPath, 0o600, "env", "customApiKeyResponses", "model"),
+			// theme is a display preference, not per-profile auth — preserved live. model and
+			// effortLevel switch with the profile, so each account remembers its own choice.
+			NewMergedJSONFile("settings.json", settingsPath, 0o600, "env", "customApiKeyResponses", "model", "effortLevel").
+				WithDisplay("model", "effortLevel"),
 			NewKeychain("credentials", claudeKeychainService, os.Getenv("USER")),
 		},
 		ApplyAuth: func(a AuthSpec) error {
@@ -73,8 +75,9 @@ func newClaude() *Tool {
 
 			if data, err := os.ReadFile(settingsPath); err == nil {
 				var s struct {
-					Model string `json:"model"`
-					Env   struct {
+					Model       string `json:"model"`
+					EffortLevel string `json:"effortLevel"`
+					Env         struct {
 						BaseURL   string `json:"ANTHROPIC_BASE_URL"`
 						APIKey    string `json:"ANTHROPIC_API_KEY"`
 						AuthToken string `json:"ANTHROPIC_AUTH_TOKEN"`
@@ -87,6 +90,7 @@ func newClaude() *Tool {
 					if info.Model == "" {
 						info.Model = s.Env.Model
 					}
+					info.Effort = s.EffortLevel
 					if s.Env.AuthToken != "" {
 						info.Secret, info.AuthMode = s.Env.AuthToken, "api (bearer)"
 					} else if s.Env.APIKey != "" {

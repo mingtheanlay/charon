@@ -174,6 +174,44 @@ func TestClaudeDescribeAndApply(t *testing.T) {
 	}
 }
 
+// TestClaudeSettingsMergeOwnsModelAndEffortButNotTheme locks in which settings.json
+// keys switch per profile (so each account remembers its own model/effort) versus
+// which stay a live, account-independent preference (theme).
+func TestClaudeSettingsMergeOwnsModelAndEffortButNotTheme(t *testing.T) {
+	sandboxHome(t)
+	c := Find("claude")
+	var merger Merger
+	for _, a := range c.Artifacts {
+		if a.ID() == "settings.json" {
+			merger = a.(Merger)
+		}
+	}
+	if merger == nil {
+		t.Fatal("settings.json artifact should implement Merger")
+	}
+
+	snapshot := []byte(`{"model":"claude-haiku","effortLevel":"low","theme":"dark"}`)
+	live := []byte(`{"model":"claude-opus","effortLevel":"medium","theme":"light"}`)
+
+	merged, err := merger.Merge(snapshot, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(merged, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["model"] != "claude-haiku" {
+		t.Errorf("model = %v, want claude-haiku (each profile keeps its own model)", got["model"])
+	}
+	if got["effortLevel"] != "low" {
+		t.Errorf("effortLevel = %v, want low (each profile keeps its own effort)", got["effortLevel"])
+	}
+	if got["theme"] != "light" {
+		t.Errorf("theme = %v, want light (theme is a live preference, not per-profile)", got["theme"])
+	}
+}
+
 func TestClaudeApplyClearsStaleBaseURL(t *testing.T) {
 	home := sandboxHome(t)
 	// A previously-applied custom-gateway profile left a base URL behind.

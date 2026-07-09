@@ -99,6 +99,7 @@ type statusRow struct {
 	AuthMode string `json:"authMode,omitempty"`
 	Endpoint string `json:"endpoint,omitempty"`
 	Model    string `json:"model,omitempty"`
+	Effort   string `json:"effort,omitempty"`
 	Account  string `json:"account,omitempty"`
 	Secret   string `json:"secret,omitempty"` // masked; never the raw value
 	Modified bool   `json:"modified"`
@@ -121,6 +122,7 @@ func cmdStatus(store *profile.Store, args []string) error {
 			r.AuthMode = info.AuthMode
 			r.Endpoint = info.Endpoint
 			r.Model = info.Model
+			r.Effort = info.Effort
 			r.Account = info.Account
 			r.Secret = secret.Mask(info.Secret)
 			r.Modified, _ = store.Drift(t)
@@ -133,10 +135,10 @@ func cmdStatus(store *profile.Store, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "TOOL\tACTIVE\tAUTH\tENDPOINT\tSECRET")
+	fmt.Fprintln(w, "TOOL\tACTIVE\tAUTH\tENDPOINT\tMODEL\tEFFORT\tSECRET")
 	for _, r := range rows {
 		if !r.Detected {
-			fmt.Fprintf(w, "%s\t—\t(not detected)\t\t\n", r.Title)
+			fmt.Fprintf(w, "%s\t—\t(not detected)\t\t\t\t\n", r.Title)
 			continue
 		}
 		active := r.Active
@@ -146,7 +148,14 @@ func cmdStatus(store *profile.Store, args []string) error {
 		if r.Modified {
 			active += " (modified)" // live config changed since the last switch
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.Title, active, r.AuthMode, r.Endpoint, r.Secret)
+		model, effort := r.Model, r.Effort
+		if model == "" {
+			model = "—"
+		}
+		if effort == "" {
+			effort = "—"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Title, active, r.AuthMode, r.Endpoint, model, effort, r.Secret)
 	}
 	return w.Flush()
 }
@@ -166,6 +175,7 @@ type profileRow struct {
 	Active   bool   `json:"active"`
 	Endpoint string `json:"endpoint,omitempty"`
 	Model    string `json:"model,omitempty"`
+	Effort   string `json:"effort,omitempty"`
 	Account  string `json:"account,omitempty"`
 }
 
@@ -189,9 +199,18 @@ func cmdList(store *profile.Store, args []string) error {
 	for _, name := range store.List(t.Name) {
 		m, _ := store.LoadManifest(t.Name, name)
 		r := profileRow{Name: name, Label: m.Label, Account: m.Account, Active: name == active}
-		if sp, ok := store.GetSpec(t.Name, name); ok {
+		sp, hasSpec := store.GetSpec(t.Name, name)
+		if hasSpec {
 			r.Endpoint = t.ResolveEndpoint(sp.Endpoint)
 			r.Model = sp.Model
+		}
+		// ProfileModelEffort reads the profile's own captured config, which is more
+		// accurate than the Add-time spec (e.g. reflects a later /model or /effort).
+		if snapModel, snapEffort := store.ProfileModelEffort(t, name); snapModel != "" || snapEffort != "" {
+			if snapModel != "" {
+				r.Model = snapModel
+			}
+			r.Effort = snapEffort
 		}
 		rows = append(rows, r)
 	}
@@ -199,14 +218,23 @@ func cmdList(store *profile.Store, args []string) error {
 	if *asJSON {
 		return printJSON(rows)
 	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(w, "\tNAME\tLABEL\tMODEL\tEFFORT")
 	for _, r := range rows {
 		marker := "  "
 		if r.Active {
 			marker = "* "
 		}
-		fmt.Printf("%s%s\t%s\n", marker, r.Name, r.Label)
+		model, effort := r.Model, r.Effort
+		if model == "" {
+			model = "—"
+		}
+		if effort == "" {
+			effort = "—"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", marker, r.Name, r.Label, model, effort)
 	}
-	return nil
+	return w.Flush()
 }
 
 // splitTool returns the first non-flag arg (the tool) and the remaining args.

@@ -20,10 +20,18 @@ func decodeJWTEmail(token string) string {
 		return ""
 	}
 	var claims struct {
-		Email string `json:"email"`
+		Email   string `json:"email"`
+		Profile struct {
+			Email string `json:"email"`
+		} `json:"https://api.openai.com/profile"`
 	}
 	if json.Unmarshal(data, &claims) != nil {
 		return ""
 	}
-	return claims.Email
+	if claims.Email != "" {
+		return claims.Email
+	}
+	// An OpenAI id_token carries a top-level "email" claim, but its access_token (what
+	// OpenCode's ChatGPT /connect stores) nests it under this OIDC profile claim instead.
+	return claims.Profile.Email
 }
