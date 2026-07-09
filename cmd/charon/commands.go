@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"text/tabwriter"
 
@@ -461,6 +462,34 @@ func cmdProfiles(store *profile.Store, args []string) error {
 	}
 	for _, name := range store.List(t.Name) {
 		fmt.Println(name)
+	}
+	return nil
+}
+
+// cmdUninstall removes the running charon binary.
+func cmdUninstall() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to locate running binary: %w", err)
+	}
+	fmt.Printf("Removing charon binary at %s ...\n", exe)
+	if err := os.Remove(exe); err != nil {
+		return fmt.Errorf("failed to remove binary: %w. Try running with sudo if needed", err)
+	}
+	fmt.Println("Charon binary uninstalled successfully.")
+	fmt.Println("Note: Your profile configurations at ~/.config/charon remain intact.")
+	fmt.Println("To completely remove them, run: rm -rf ~/.config/charon")
+	return nil
+}
+
+// cmdUpdate runs the online install.sh script to upgrade the binary.
+func cmdUpdate() error {
+	fmt.Println("Checking for updates and upgrading charon ...")
+	cmd := exec.Command("sh", "-c", "curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/install.sh | sh")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("update failed: %w", err)
 	}
 	return nil
 }

@@ -22,6 +22,21 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "update":
+			return cmdUpdate()
+		case "uninstall":
+			return cmdUninstall()
+		case "version", "-v", "--version":
+			fmt.Println("charon " + version)
+			return nil
+		case "help", "-h", "--help":
+			printUsage()
+			return nil
+		}
+	}
+
 	store, err := profile.Open()
 	if err != nil {
 		return err
@@ -68,12 +83,6 @@ func run(args []string) error {
 		return cmdCompletion(args[1:])
 	case "__profiles": // hidden: feeds shell completion
 		return cmdProfiles(store, args[1:])
-	case "version", "-v", "--version":
-		fmt.Println("charon " + version)
-		return nil
-	case "help", "-h", "--help":
-		printUsage()
-		return nil
 	default:
 		printUsage()
 		return fmt.Errorf("unknown command %q", args[0])
@@ -107,6 +116,8 @@ Usage:
   charon prune <tool>        delete old backups, keeping the newest (--keep N)
   charon rm <tool> <p>       delete a saved profile
   charon completion <shell>  print a bash/zsh/fish completion script
+  charon update              upgrade charon to the latest version
+  charon uninstall           remove the installed charon binary
 
 Tools: codex, claude, opencode
 `)
