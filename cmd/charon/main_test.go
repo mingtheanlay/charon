@@ -115,6 +115,62 @@ func TestRunRejectsUnsafeProfileArguments(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidURLAndKey(t *testing.T) {
+	home := sandbox(t)
+	seedCodex(t, home)
+
+	for _, args := range [][]string{
+		{"add", "codex", "--name", "bad-url", "--key", "sk-test", "--endpoint", "not a url"},
+		{"add", "codex", "--name", "bad-scheme", "--key", "sk-test", "--endpoint", "ftp://example.com"},
+		{"add", "codex", "--name", "no-key", "--key", "  "},
+		{"models", "codex", "--key", "sk-test", "--endpoint", "not a url"},
+	} {
+		if err := run(args); err == nil {
+			t.Errorf("run(%v) succeeded, want validation error", args)
+		}
+	}
+
+	if err := run([]string{"add", "codex", "--name", "good", "--key", "sk-test", "--endpoint", "https://example.com/v1"}); err != nil {
+		t.Fatalf("add with valid endpoint/key: %v", err)
+	}
+	if err := run([]string{"edit", "codex", "good", "--endpoint", "not a url"}); err == nil {
+		t.Error("edit with invalid endpoint succeeded, want error")
+	}
+	if err := run([]string{"edit", "codex", "good", "--key", " "}); err == nil {
+		t.Error("edit with blank key succeeded, want error")
+	}
+}
+
+// TestRunEditDoesNotSwitchInactiveProfile locks in that editing a saved-but-
+// inactive profile via the CLI only updates its stored spec, leaving the
+// active profile (and hence the live config) untouched.
+func TestRunEditDoesNotSwitchInactiveProfile(t *testing.T) {
+	home := sandbox(t)
+	seedCodex(t, home)
+
+	if err := run([]string{"add", "codex", "--name", "work", "--key", "sk-work", "--endpoint", "https://work.example.com/v1"}); err != nil {
+		t.Fatalf("add work: %v", err)
+	}
+	if err := run([]string{"add", "codex", "--name", "other", "--key", "sk-other", "--endpoint", "https://other.example.com/v1"}); err != nil {
+		t.Fatalf("add other: %v", err)
+	}
+	if err := run([]string{"switch", "codex", "work"}); err != nil {
+		t.Fatalf("switch work: %v", err)
+	}
+
+	if err := run([]string{"edit", "codex", "other", "--model", "gpt-5.5"}); err != nil {
+		t.Fatalf("edit other: %v", err)
+	}
+
+	store, err := profile.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.Active("codex") != "work" {
+		t.Errorf("active = %q, want work (editing an inactive profile must not switch)", store.Active("codex"))
+	}
+}
+
 func TestRunStatusAndVersion(t *testing.T) {
 	home := sandbox(t)
 	seedCodex(t, home)

@@ -14,8 +14,6 @@ const bannerArt = ` ██████╗██╗  ██╗ █████╗
 ╚██████╗██║  ██║██║  ██║██║  ██║╚██████╔╝██║ ╚████║
  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝`
 
-// bannerStyle is the one place the brand color appears; the tagline and hints
-// stay in the terminal's own palette.
 var (
 	bannerStyle  = lipgloss.NewStyle().Foreground(colorBrand).Bold(true)
 	taglineStyle = lipgloss.NewStyle().Italic(true).PaddingLeft(1)

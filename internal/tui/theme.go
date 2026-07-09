@@ -9,12 +9,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// The TUI respects the terminal's own theme: text renders in the default
-// foreground, secondary/semantic colors come from the standard ANSI palette
-// (which the user's terminal scheme defines), and the only fixed brand color
-// is the teal on the ASCII banner wordmark (see banner.go).
+// The TUI mostly respects the terminal's own theme — plain text renders in the
+// default foreground, and hints/dividers come from the standard ANSI palette.
+// The brand teal is reserved for the few spots that should always read as
+// "Charon", regardless of terminal scheme: the header bar, the selected row,
+// focused input, and the banner wordmark.
 var (
-	colorBrand = lipgloss.Color("#377375") // brand teal — banner art only
+	colorBrand  = lipgloss.Color("#377375")                                 // brand teal — header fill, selection
+	colorOnDark = lipgloss.Color("#e8f2f1")                                 // text on the colorBrand fill
+	colorAccent = lipgloss.AdaptiveColor{Light: "#1f6b68", Dark: "#5aa6a3"} // focus: cursor, prompts, step labels
 
 	colorMuted   = lipgloss.Color("8") // ANSI bright black: hints, secondary text
 	colorSuccess = lipgloss.Color("2") // ANSI green: ✓ applied / saved / switched
@@ -23,8 +26,8 @@ var (
 )
 
 var (
-	// titleStyle is the screen header; bold default-foreground text, no fill.
-	titleStyle = lipgloss.NewStyle().Bold(true).Padding(0, 1)
+	// titleStyle is the screen header: bold text on a brand-teal fill.
+	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(colorOnDark).Background(colorBrand).Padding(0, 1)
 
 	// statusStyle is the muted footer line for neutral/info messages.
 	statusStyle = lipgloss.NewStyle().Foreground(colorMuted).PaddingLeft(1)
@@ -34,14 +37,14 @@ var (
 	errorStyle   = lipgloss.NewStyle().Foreground(colorError).PaddingLeft(1)
 	warnStyle    = lipgloss.NewStyle().Foreground(colorWarn).PaddingLeft(1)
 
-	// promptStyle titles the input wizard steps.
-	promptStyle = lipgloss.NewStyle().Bold(true)
+	// promptStyle titles the input wizard steps, in the focus accent.
+	promptStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 
 	// hintStyle is faint helper text under inputs.
 	hintStyle = lipgloss.NewStyle().Foreground(colorMuted)
 
 	// stepStyle labels wizard progress (e.g. "Step 2 of 4").
-	stepStyle = lipgloss.NewStyle().Foreground(colorMuted).Bold(true).PaddingLeft(1)
+	stepStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).PaddingLeft(1)
 )
 
 // newSpinner returns the dot spinner shown on the loading screen.
@@ -61,17 +64,31 @@ type charonDelegate struct {
 const dividerWidth = 18
 
 func (d charonDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	if it, ok := listItem.(item); ok && it.value == sepSentinel {
+	it, ok := listItem.(item)
+	if !ok {
+		d.DefaultDelegate.Render(w, m, index, listItem)
+		return
+	}
+	if it.value == sepSentinel {
 		rule := lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 0, 0, 1).
 			Render(strings.Repeat("─", dividerWidth))
 		_, _ = io.WriteString(w, rule)
 		return
 	}
+	// The already-picked profile keeps a primary-colored title even once the
+	// cursor moves elsewhere, so "what's active" and "what's under the cursor"
+	// stay two distinct, simultaneously visible signals. d is a value receiver,
+	// so this style swap only affects this one row's render call.
+	if it.active && index != m.Index() {
+		d.Styles.NormalTitle = d.Styles.NormalTitle.Foreground(colorBrand).Bold(true)
+	}
 	d.DefaultDelegate.Render(w, m, index, listItem)
 }
 
-// baseDelegate is the shared theme-respecting list styling, with a one-line row gap:
-// default foreground for titles, ANSI muted for descriptions, bold for the selection.
+// baseDelegate is the shared list styling, with a one-line row gap: default
+// foreground for normal titles, ANSI muted for descriptions, and a flat
+// brand-color fill marking the selected row — no separate bar glyph and no
+// extra indent, so row text lines up identically whether selected or not.
 func baseDelegate() list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
 	d.SetSpacing(1)
@@ -79,14 +96,14 @@ func baseDelegate() list.DefaultDelegate {
 	d.Styles.NormalTitle = d.Styles.NormalTitle.UnsetForeground().Padding(0, 0, 0, 1)
 	d.Styles.NormalDesc = d.Styles.NormalDesc.Foreground(colorMuted).Padding(0, 0, 0, 1)
 
-	// Highlighted row reads as one unit: bold title + border bar in the default
-	// foreground, so the selection stands out without leaving the terminal palette.
 	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
-		UnsetForeground().Bold(true).
-		UnsetBorderForeground().Padding(0, 0, 0, 1)
+		UnsetBorderStyle().UnsetBorderLeft().
+		Bold(true).Foreground(colorOnDark).Background(colorBrand).
+		Padding(0, 0, 0, 1)
 	d.Styles.SelectedDesc = d.Styles.SelectedDesc.
-		Foreground(colorMuted).
-		UnsetBorderForeground().Padding(0, 0, 0, 1)
+		UnsetBorderStyle().UnsetBorderLeft().
+		Foreground(colorOnDark).Background(colorBrand).
+		Padding(0, 0, 0, 1)
 
 	return d
 }

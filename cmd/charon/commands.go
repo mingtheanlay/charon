@@ -289,6 +289,12 @@ func cmdModels(args []string) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
+	if err := tools.ValidateKey(*key); err != nil {
+		return err
+	}
+	if err := tools.ValidateEndpoint(*endpoint); err != nil {
+		return err
+	}
 	list, err := models.Fetch(models.Provider(t.Provider), t.ResolveEndpoint(*endpoint), *key)
 	if err != nil {
 		return err
@@ -318,8 +324,14 @@ func cmdAdd(store *profile.Store, args []string) error {
 	if t.ApplyAuth == nil {
 		return fmt.Errorf("%s does not support add", t.Title)
 	}
-	if *name == "" || *key == "" {
-		return fmt.Errorf("--name and --key are required")
+	if *name == "" {
+		return fmt.Errorf("--name is required")
+	}
+	if err := tools.ValidateKey(*key); err != nil {
+		return err
+	}
+	if err := tools.ValidateEndpoint(*endpoint); err != nil {
+		return err
 	}
 	ep := t.ResolveEndpoint(*endpoint)
 	if err := store.AddProfile(t, *name, profile.Spec{Endpoint: ep, Key: *key, Model: *model}); err != nil {
@@ -354,6 +366,12 @@ func cmdEdit(store *profile.Store, args []string) error {
 	target := name
 	if *newName != "" {
 		target = *newName
+	}
+	if err := tools.ValidateKey(*key); err != nil {
+		return err
+	}
+	if err := tools.ValidateEndpoint(*endpoint); err != nil {
+		return err
 	}
 	if err := store.EditProfile(t, name, target, profile.Spec{Endpoint: *endpoint, Key: *key, Model: *model}); err != nil {
 		return err

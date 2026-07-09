@@ -117,20 +117,22 @@ func (m *model) renderModels() {
 	var items []list.Item
 	for _, id := range ids {
 		title := id
-		if id == m.wiz.model {
+		isChosen := id == m.wiz.model
+		if isChosen {
 			title = "✓ " + id // mark the profile's currently selected model
 		}
-		items = append(items, item{title: title, desc: "", value: id})
+		items = append(items, item{title: title, desc: "", value: id, active: isChosen})
 	}
 	// A blank divider sets the skip row apart from the models (only when not searching).
 	if len(ids) > 0 && m.modelFilter == "" {
 		items = append(items, item{value: sepSentinel})
 	}
 	skipTitle := "(skip — no model override)"
-	if m.wiz.model == "" {
+	skipChosen := m.wiz.model == ""
+	if skipChosen {
 		skipTitle = "✓ " + skipTitle
 	}
-	items = append(items, item{title: skipTitle, desc: "", value: skipModel})
+	items = append(items, item{title: skipTitle, desc: "", value: skipModel, active: skipChosen})
 	skipIndex := len(items) - 1
 	m.list.SetDelegate(themedCompactDelegate())
 	m.list.SetItems(items)

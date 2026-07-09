@@ -15,6 +15,7 @@ import (
 	"charon/internal/secret"
 	"charon/internal/tools"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -68,6 +69,7 @@ func isSentinel(v string) bool {
 type item struct {
 	title, desc string
 	value       string
+	active      bool // the already-picked profile — stays primary-colored even off-cursor
 }
 
 func (i item) Title() string       { return i.title }
@@ -160,26 +162,32 @@ func newModel(store *profile.Store) model {
 	l.KeyMap.Quit.SetEnabled(false) // "q"/"esc" must not quit; only ctrl+c does
 	l.Styles.Title = titleStyle
 	l.Styles.TitleBar = l.Styles.TitleBar.Padding(0, 0, 1, 0)
-	// Keep the paginator and help footer in the terminal's palette: muted gray
-	// labels, default-foreground keys. bubbles' defaults are fixed RGB grays, so
-	// every piece (separators, ellipsis, full-help view) needs the override.
+	// Keep the paginator and help footer mostly in the terminal's palette (muted
+	// gray labels; bubbles' defaults are fixed RGB grays, so every piece needs
+	// the override), but call out the actionable keys themselves in the accent.
 	l.Styles.HelpStyle = l.Styles.HelpStyle.Foreground(colorMuted)
 	l.Styles.PaginationStyle = l.Styles.PaginationStyle.Foreground(colorMuted)
 	l.Styles.ArabicPagination = lipgloss.NewStyle().Foreground(colorMuted)
 	l.Styles.NoItems = lipgloss.NewStyle().Foreground(colorMuted)
-	l.Help.Styles.ShortKey = l.Help.Styles.ShortKey.UnsetForeground()
+	l.Help.Styles.ShortKey = l.Help.Styles.ShortKey.Foreground(colorAccent)
 	l.Help.Styles.ShortDesc = l.Help.Styles.ShortDesc.Foreground(colorMuted)
 	l.Help.Styles.ShortSeparator = l.Help.Styles.ShortSeparator.Foreground(colorMuted)
-	l.Help.Styles.FullKey = l.Help.Styles.FullKey.UnsetForeground()
+	l.Help.Styles.FullKey = l.Help.Styles.FullKey.Foreground(colorAccent)
 	l.Help.Styles.FullDesc = l.Help.Styles.FullDesc.Foreground(colorMuted)
 	l.Help.Styles.FullSeparator = l.Help.Styles.FullSeparator.Foreground(colorMuted)
 	l.Help.Styles.Ellipsis = l.Help.Styles.Ellipsis.Foreground(colorMuted)
 
 	ti := textinput.New()
 	ti.CharLimit = 200
-	ti.PromptStyle = ti.PromptStyle.UnsetForeground()
-	ti.Cursor.Style = ti.Cursor.Style.UnsetForeground()
+	// The focused field itself carries the accent color, so it's obvious which
+	// input has keyboard focus.
+	ti.PromptStyle = ti.PromptStyle.Foreground(colorAccent)
 	ti.PlaceholderStyle = ti.PlaceholderStyle.Foreground(colorMuted)
+	// A solid, steady block cursor rather than the default blink: blinking
+	// alternates between a filled block and plain text, which reads as the
+	// cursor flickering in and out rather than marking a stable position.
+	ti.Cursor.Style = ti.Cursor.Style.Foreground(colorAccent)
+	ti.Cursor.SetMode(cursor.CursorStatic)
 
 	m := model{store: store, allTools: tools.All(), view: viewTools, list: l, input: ti, spinner: newSpinner()}
 	m.loadTools()
@@ -254,23 +262,35 @@ func (m *model) loadTools() {
 	m.setHelpKeys(keyOpen)
 }
 
-func (m *model) loadProfiles() {
+// loadProfiles rebuilds the profile list for the current tool. selectName, if
+// non-empty, is the row the cursor should land on (e.g. the profile just
+// edited or backed up); otherwise the cursor defaults to the active profile.
+// This keeps an edit or backup from silently relocating the cursor onto
+// whatever happens to be active — only an explicit switch should do that.
+func (m *model) loadProfiles(selectName string) {
 	var items []list.Item
 	active := m.store.Active(m.tool.Name)
 	saved := m.store.List(m.tool.Name)
 	drift, _ := m.store.Drift(m.tool) // live config changed outside charon?
+	target := selectName
+	if target == "" {
+		target = active
+	}
 	selectedIndex := 0
 	for i, name := range saved {
 		// ✓ marks the active profile; url and model show on the line below.
 		title := name
-		if name == active {
+		isActive := name == active
+		if isActive {
 			title = "✓ " + title
 			if drift {
 				title += "  ⚠ modified" // snapshot no longer matches live config
 			}
-			selectedIndex = i // land the cursor on the active profile
 		}
-		items = append(items, item{title: title, desc: m.profileDetail(name), value: name})
+		if name == target {
+			selectedIndex = i
+		}
+		items = append(items, item{title: title, desc: m.profileDetail(name), value: name, active: isActive})
 	}
 	// The add row sits below the profiles, set off by a thin divider.
 	if m.tool.ApplyAuth != nil {
@@ -470,7 +490,8 @@ func (m model) startBackup(name string) (tea.Model, tea.Cmd) {
 	} else {
 		m.setStatus(statusOK, "Backed up login as "+saved)
 	}
-	m.loadProfiles()
+	// Stay on the original row rather than jumping to the new backup.
+	m.loadProfiles(name)
 	return m, nil
 }
 
@@ -528,7 +549,7 @@ func (m model) onEsc() (tea.Model, tea.Cmd) {
 		} else {
 			m.view = viewProfiles
 			m.setStatus(statusInfo, "cancelled")
-			m.loadProfiles()
+			m.loadProfiles("")
 		}
 	}
 	return m, nil
@@ -552,8 +573,8 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 		m.tool = t
 		m.view = viewProfiles
 		m.clearStatus()
-		m.loadProfiles()
-		m.resize() // banner hidden → grow the list
+		m.loadProfiles("") // land on the active profile
+		m.resize()         // banner hidden → grow the list
 
 	case viewProfiles:
 		if it.value == addSentinel {
@@ -570,7 +591,7 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 			info, _ := m.tool.Describe()
 			m.setStatus(statusOK, fmt.Sprintf("Switched to %s (%s · %s). Backup: %s",
 				it.value, info.Endpoint, secret.Mask(info.Secret), backup))
-			m.loadProfiles()
+			m.loadProfiles(it.value)
 		}
 
 	case viewEditForm:

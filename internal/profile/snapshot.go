@@ -110,17 +110,31 @@ func (s *Store) AddProfile(t *tools.Tool, name string, spec Spec) error {
 }
 
 // EditProfile re-applies spec under newName and, when this is a rename, removes the
-// old profile once the new one is safely in place. Shared by the CLI `edit` command
-// and the TUI edit form so the rename cleanup can't drift between them.
+// old profile once the new one is safely in place. Editing the profile that is
+// currently active also updates the live config, since you're changing what's in
+// use; editing any other saved profile only updates its stored spec — the live
+// config and active pointer are restored to what they were, so an edit never
+// silently switches which profile is in effect. Shared by the CLI `edit` command
+// and the TUI edit form so this can't drift between them.
 func (s *Store) EditProfile(t *tools.Tool, oldName, newName string, spec Spec) error {
 	if newName == "" {
 		newName = oldName
 	}
+	prevActive := s.Active(t.Name)
+	wasActive := prevActive == oldName
+
 	if err := s.AddProfile(t, newName, spec); err != nil {
 		return err
 	}
 	if oldName != newName {
-		return s.Remove(t.Name, oldName)
+		if err := s.Remove(t.Name, oldName); err != nil {
+			return err
+		}
+	}
+	if !wasActive && prevActive != "" && prevActive != newName && s.Exists(t.Name, prevActive) {
+		if _, err := s.Apply(t, prevActive); err != nil {
+			return err
+		}
 	}
 	return nil
 }

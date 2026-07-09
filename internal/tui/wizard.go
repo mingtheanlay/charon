@@ -6,6 +6,7 @@ import (
 
 	"charon/internal/profile"
 	"charon/internal/secret"
+	"charon/internal/tools"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -115,10 +116,11 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.loadEditForm()
 			return m, nil
 		}
+		src := m.dupSource
 		m.dupSource = ""
 		m.view = viewProfiles
 		m.setStatus(statusInfo, "cancelled")
-		m.loadProfiles()
+		m.loadProfiles(src) // land back on the profile that was being duplicated, if any
 		return m, nil
 	case "enter":
 		val := m.input.Value()
@@ -128,17 +130,27 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch m.editField {
 			case fieldName:
 				val = strings.TrimSpace(val)
-				if val != "" {
-					m.wiz.name = val
+				if val == "" {
+					m.setStatus(statusErr, "name is required")
+					return m, nil
 				}
+				m.wiz.name = val
 			case fieldURL:
 				val = strings.TrimSpace(val)
+				if err := tools.ValidateEndpoint(val); err != nil {
+					m.setStatus(statusErr, err.Error())
+					return m, nil
+				}
 				if m.wiz.endpoint != val {
 					m.wiz.endpoint = val
 					refetch = true
 				}
 			case fieldToken:
 				val = strings.TrimSpace(val)
+				if err := tools.ValidateKey(val); err != nil {
+					m.setStatus(statusErr, err.Error())
+					return m, nil
+				}
 				if m.wiz.key != val {
 					m.wiz.key = val
 					refetch = true
@@ -149,31 +161,38 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				cmd := m.beginFetch()
 				return m, cmd
 			}
+			m.clearStatus()
 			m.view = viewEditForm
 			m.loadEditForm()
 			return m, nil
 
 		case viewAddEndpoint:
 			val = strings.TrimSpace(val)
+			if err := tools.ValidateEndpoint(val); err != nil {
+				m.setStatus(statusErr, err.Error())
+				return m, nil
+			}
 			m.wiz.endpoint = m.tool.ResolveEndpoint(val) // blank accepts the provider default
 			m.view = viewAddKey
+			m.clearStatus()
 			m.startInput("API key", true)
 			return m, textinput.Blink
 
 		case viewAddKey:
 			val = strings.TrimSpace(val)
-			if val == "" {
-				m.setStatus(statusInfo, "key required")
+			if err := tools.ValidateKey(val); err != nil {
+				m.setStatus(statusErr, err.Error())
 				return m, nil
 			}
 			m.wiz.key = val
+			m.clearStatus()
 			cmd := m.beginFetch()
 			return m, cmd
 
 		case viewAddName:
 			val = strings.TrimSpace(val)
 			if val == "" {
-				m.setStatus(statusInfo, "name required")
+				m.setStatus(statusErr, "name is required")
 				return m, nil
 			}
 			return m.finishAdd(val)
@@ -181,7 +200,7 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case viewDupName:
 			val = strings.TrimSpace(val)
 			if val == "" {
-				m.setStatus(statusInfo, "name required")
+				m.setStatus(statusErr, "name is required")
 				return m, nil
 			}
 			src := m.dupSource
@@ -192,7 +211,8 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.setStatus(statusOK, "Duplicated "+src+" → "+val)
 			}
-			m.loadProfiles()
+			// Stay on the source row rather than jumping to the new duplicate.
+			m.loadProfiles(src)
 			return m, nil
 		}
 	}
@@ -210,16 +230,18 @@ func (m model) updateConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = viewProfiles
 		if err := m.store.Remove(m.tool.Name, name); err != nil {
 			m.setStatus(statusErr, err.Error())
+			m.loadProfiles(name)
 		} else {
 			m.setStatus(statusOK, "Deleted "+name)
+			m.loadProfiles("") // the row is gone; fall back to the active profile
 		}
-		m.loadProfiles()
 		return m, nil
 	case "n", "N", "esc":
+		name := m.delTarget
 		m.delTarget = ""
 		m.view = viewProfiles
 		m.setStatus(statusInfo, "cancelled")
-		m.loadProfiles()
+		m.loadProfiles(name)
 		return m, nil
 	case "ctrl+c":
 		return m, tea.Quit
@@ -249,6 +271,6 @@ func (m model) finishAdd(name string) (tea.Model, tea.Cmd) {
 		m.setStatus(statusOK, fmt.Sprintf("%s %s (%s · %s)", verb, name, m.wiz.endpoint, model))
 	}
 	m.view = viewProfiles
-	m.loadProfiles()
+	m.loadProfiles(name) // land on the profile just added/edited, not wherever is active
 	return m, nil
 }

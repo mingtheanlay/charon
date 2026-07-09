@@ -133,3 +133,76 @@ func TestEditProfileSameNameKeepsProfile(t *testing.T) {
 		t.Errorf("key = %q, want k2", sp.Key)
 	}
 }
+
+// TestEditProfileLeavesInactiveProfileNotActive locks in the fix where editing a
+// saved-but-inactive profile no longer silently switches the live config and the
+// active pointer to it — only editing the currently active profile should do that.
+func TestEditProfileLeavesInactiveProfileNotActive(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg := applyTool(dir)
+	write(t, cfg, "seed")
+	s := newStore(t)
+
+	if err := s.AddProfile(tool, "work", Spec{Endpoint: "https://work", Key: "k-work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProfile(tool, "other", Spec{Endpoint: "https://other", Key: "k-other"}); err != nil {
+		t.Fatal(err)
+	}
+	// AddProfile always activates what it creates; switch back to "work" so
+	// "other" is the inactive profile under test.
+	if _, err := s.Apply(tool, "work"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.EditProfile(tool, "other", "other", Spec{Endpoint: "https://other-edited", Key: "k-other-2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if s.Active(tool.Name) != "work" {
+		t.Errorf("active = %q, want work (editing an inactive profile must not switch)", s.Active(tool.Name))
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != "https://work|k-work|" {
+		t.Errorf("live config = %q, want work's config restored", got)
+	}
+	sp, ok := s.GetSpec(tool.Name, "other")
+	if !ok || sp.Endpoint != "https://other-edited" || sp.Key != "k-other-2" {
+		t.Errorf("spec = %+v ok=%v, want the edited values recorded", sp, ok)
+	}
+}
+
+// TestEditProfileRenameOfInactiveProfileStaysInactive is the rename variant of
+// the above: renaming an inactive profile must not activate its new name either.
+func TestEditProfileRenameOfInactiveProfileStaysInactive(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg := applyTool(dir)
+	write(t, cfg, "seed")
+	s := newStore(t)
+
+	if err := s.AddProfile(tool, "work", Spec{Endpoint: "https://work", Key: "k-work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProfile(tool, "old", Spec{Endpoint: "https://old", Key: "k-old"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Apply(tool, "work"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.EditProfile(tool, "old", "renamed", Spec{Endpoint: "https://old", Key: "k-old"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if s.Exists(tool.Name, "old") {
+		t.Error("old name still exists after rename")
+	}
+	if !s.Exists(tool.Name, "renamed") {
+		t.Fatal("renamed profile missing")
+	}
+	if s.Active(tool.Name) != "work" {
+		t.Errorf("active = %q, want work (renaming an inactive profile must not switch)", s.Active(tool.Name))
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != "https://work|k-work|" {
+		t.Errorf("live config = %q, want work's config restored", got)
+	}
+}
