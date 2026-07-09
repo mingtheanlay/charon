@@ -58,6 +58,8 @@ case "$arch" in
   *) die "unsupported architecture: $arch" ;;
 esac
 
+info "Detecting platform ... $os ($arch)"
+
 archive="${BINARY}_${os}_${arch}.tar.gz"
 
 # --- resolve the release URL -------------------------------------------------
@@ -87,7 +89,11 @@ if dl "$base/checksums.txt" "$tmp/checksums.txt" 2>/dev/null; then
     warn "no sha256sum/shasum found; skipping checksum verification"
     actual="$expected"
   fi
-  [ "$actual" = "$expected" ] || die "checksum mismatch for $archive (expected $expected, got $actual)"
+  if [ "$actual" = "$expected" ]; then
+    info "Checksum verified successfully."
+  else
+    die "checksum mismatch for $archive (expected $expected, got $actual)"
+  fi
 else
   warn "checksums.txt not available; skipping verification"
 fi
@@ -107,8 +113,11 @@ fi
 info "Installed: $BINDIR/$BINARY"
 
 # --- PATH check --------------------------------------------------------------
+info "Checking PATH ..."
 case ":$PATH:" in
-  *":$BINDIR:"*) : ;;
+  *":$BINDIR:"*)
+    info "PATH check passed: $BINDIR is already on your PATH."
+    ;;
   *)
     warn "$BINDIR is not on your PATH."
     shell_profile="~/.bashrc or ~/.zshrc"
