@@ -111,8 +111,22 @@ case ":$PATH:" in
   *":$BINDIR:"*) : ;;
   *)
     warn "$BINDIR is not on your PATH."
-    printf '  Add this to your shell profile (~/.bashrc or ~/.zshrc):\n'
-    printf '    export PATH="%s:$PATH"\n' "$BINDIR"
+    shell_profile="~/.bashrc or ~/.zshrc"
+    add_line="export PATH=\"$BINDIR:\$PATH\""
+    case "${SHELL:-}" in
+      */bash)
+        shell_profile="~/.bashrc"
+        ;;
+      */zsh)
+        shell_profile="~/.zshrc"
+        ;;
+      */fish)
+        shell_profile="~/.config/fish/config.fish"
+        add_line="fish_add_path $BINDIR"
+        ;;
+    esac
+    printf '  Add this to your shell profile (%s):\n' "$shell_profile"
+    printf '    %s\n' "$add_line"
     ;;
 esac
 
