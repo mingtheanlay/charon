@@ -43,17 +43,28 @@ golangci-lint on Linux + macOS; keep all of them green.
 ## Architecture
 
 ```
-cmd/charon/         CLI entrypoint + subcommand dispatch (thin; no business logic)
-internal/tools/   per-tool adapters + the artifact abstraction
+cmd/charon/         CLI entrypoint (thin; no business logic)
+  main.go           main, subcommand dispatch, usage
+  commands.go       one cmd* func per subcommand + requireTool
+internal/artifact/  snapshot/restore primitives, no tool knowledge
+  Artifact/Rotator/Merger/Peeker interfaces; FileArtifact,
+  MergedFileArtifact, KeychainArtifact; AtomicWrite
+internal/tools/   per-tool adapters
   tool.go           Tool struct, AuthSpec, registry (All/Find)
-  artifact.go       Artifact interface; FileArtifact + KeychainArtifact
+  providers.go      guards for the shared "charon" provider entry (codex/opencode)
   edit.go           JSON/TOML load-merge-write helpers (preserve unknown keys)
   codex.go / claude.go / opencode.go   one file per tool
-internal/profile/ snapshot store: Save / EnsureDefault / Apply / backups
+internal/profile/ snapshot store, split by concern:
+  store.go (layout/config/name validation) · snapshot.go (Save/Add/Edit/EnsureDefault)
+  apply.go (Apply/Undo/Drift/refresh) · backup.go (backups + prune) · manage.go (rm/mv/cp)
 internal/models/  fetch model lists from a provider API (openai/anthropic wire)
 internal/secret/  masking + platform keychain (darwin vs. other build tags)
 internal/tui/     bubbletea interactive menu
 ```
+
+Layering (imports point left): `secret` ← `artifact` ← `tools` ← `profile` ← `cmd`/`tui`.
+Profile names are validated centrally in `internal/profile/store.go` (`validateName`);
+never join a user-supplied name into a path without it.
 
 Data lives under `~/.config/charon/` (`$XDG_CONFIG_HOME` respected):
 `profiles/<tool>/<name>/` (snapshot files + `manifest.json`),
@@ -62,8 +73,8 @@ Data lives under `~/.config/charon/` (`$XDG_CONFIG_HOME` respected):
 ### How to add a new tool
 
 1. Add `internal/tools/<tool>.go` returning a `*Tool` with: `Name`, `Title`,
-   `Provider` (`openai`/`anthropic`), `DefaultEndpoint`, `Artifacts`,
-   `Detected`, `Describe`, and `ApplyAuth`.
+   `Provider` (`openai`/`anthropic`), `DefaultEndpoint`, `Artifacts` (built from
+   `internal/artifact` constructors), `Detected`, `Describe`, and `ApplyAuth`.
 2. Register it in `All()` in `tool.go`.
 3. Add a `TestXxxDescribeAndApply` in `tools_test.go` using a sandboxed `$HOME`.
    Everything else (store, CLI, TUI) is generic and needs no changes.

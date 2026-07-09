@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	toml "github.com/pelletier/go-toml/v2"
+
+	"charon/internal/artifact"
 )
 
 // sandboxHome points HOME (and USER) at a temp dir so tool paths resolve there
@@ -180,14 +182,14 @@ func TestClaudeDescribeAndApply(t *testing.T) {
 func TestClaudeSettingsMergeOwnsModelAndEffortButNotTheme(t *testing.T) {
 	sandboxHome(t)
 	c := Find("claude")
-	var merger Merger
+	var merger artifact.Merger
 	for _, a := range c.Artifacts {
 		if a.ID() == "settings.json" {
-			merger = a.(Merger)
+			merger = a.(artifact.Merger)
 		}
 	}
 	if merger == nil {
-		t.Fatal("settings.json artifact should implement Merger")
+		t.Fatal("settings.json artifact should implement artifact.Merger")
 	}
 
 	snapshot := []byte(`{"model":"claude-haiku","effortLevel":"low","theme":"dark"}`)

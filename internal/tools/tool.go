@@ -2,8 +2,7 @@
 package tools
 
 import (
-	"encoding/json"
-	"fmt"
+	"charon/internal/artifact"
 )
 
 // Info is a display-friendly summary of a tool's live configuration.
@@ -38,7 +37,7 @@ type AuthSpec struct {
 type Tool struct {
 	Name            string // stable id, e.g. "codex"
 	Title           string // display name, e.g. "Codex"
-	Artifacts       []Artifact
+	Artifacts       []artifact.Artifact
 	Provider        string               // model-list wire format: "openai" or "anthropic"
 	DefaultEndpoint string               // prefilled when adding a profile
 	Detected        func() bool          // is the tool installed/configured?
@@ -64,37 +63,6 @@ func Find(name string) *Tool {
 	for _, t := range All() {
 		if t.Name == name {
 			return t
-		}
-	}
-	return nil
-}
-
-// managedProvider is the only provider entry charon owns; all others are the user's.
-const managedProvider = "charon"
-
-// snapshotProviders records the JSON of every provider but charon's, for later comparison.
-func snapshotProviders(providers map[string]any) map[string]string {
-	snap := map[string]string{}
-	for name, v := range providers {
-		if name == managedProvider {
-			continue
-		}
-		b, _ := json.Marshal(v)
-		snap[name] = string(b)
-	}
-	return snap
-}
-
-// ensureOnlyCharonChanged errors if the write would delete or edit any user provider.
-func ensureOnlyCharonChanged(original map[string]string, providers map[string]any) error {
-	for name, want := range original {
-		v, ok := providers[name]
-		if !ok {
-			return fmt.Errorf("refusing to write config: would delete provider %q", name)
-		}
-		b, _ := json.Marshal(v)
-		if string(b) != want {
-			return fmt.Errorf("refusing to write config: would modify provider %q", name)
 		}
 	}
 	return nil

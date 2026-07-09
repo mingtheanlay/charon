@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"charon/internal/artifact"
 )
 
 // opencodeConfigPath returns the existing config (opencode.jsonc, else legacy
@@ -31,12 +33,12 @@ func newOpenCode() *Tool {
 		Title:           "OpenCode",
 		Provider:        "openai",
 		DefaultEndpoint: "https://api.openai.com/v1",
-		Artifacts: []Artifact{
+		Artifacts: []artifact.Artifact{
 			// The config holds provider options.apiKey, so keep it private. Other top-level
 			// settings (e.g. theme) are CLI preferences, not per-profile auth — preserved live.
-			NewMergedJSONFile(filepath.Base(configPath), configPath, 0o600, "provider", "model").
+			artifact.NewMergedJSONFile(filepath.Base(configPath), configPath, 0o600, "provider", "model").
 				WithDisplay("model", ""),
-			NewRotatingFile("auth.json", authPath, 0o600), // OAuth logins (e.g. github-copilot); OpenCode refreshes them in place
+			artifact.NewRotatingFile("auth.json", authPath, 0o600), // OAuth logins (e.g. github-copilot); OpenCode refreshes them in place
 		},
 		ApplyAuth: func(a AuthSpec) error {
 			// Register a "charon" provider: OpenCode needs options.apiKey and a

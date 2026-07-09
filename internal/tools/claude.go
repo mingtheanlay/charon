@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"charon/internal/artifact"
 	"charon/internal/secret"
 )
 
@@ -20,12 +21,12 @@ func newClaude() *Tool {
 		Title:           "Claude Code",
 		Provider:        "anthropic",
 		DefaultEndpoint: "https://api.anthropic.com",
-		Artifacts: []Artifact{
+		Artifacts: []artifact.Artifact{
 			// theme is a display preference, not per-profile auth — preserved live. model and
 			// effortLevel switch with the profile, so each account remembers its own choice.
-			NewMergedJSONFile("settings.json", settingsPath, 0o600, "env", "customApiKeyResponses", "model", "effortLevel").
+			artifact.NewMergedJSONFile("settings.json", settingsPath, 0o600, "env", "customApiKeyResponses", "model", "effortLevel").
 				WithDisplay("model", "effortLevel"),
-			NewKeychain("credentials", claudeKeychainService, os.Getenv("USER")),
+			artifact.NewKeychain("credentials", claudeKeychainService, os.Getenv("USER")),
 		},
 		ApplyAuth: func(a AuthSpec) error {
 			s, err := loadJSONMap(settingsPath)

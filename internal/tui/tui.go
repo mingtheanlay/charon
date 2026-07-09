@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Run starts the interactive menu against the given store.
@@ -159,16 +160,25 @@ func newModel(store *profile.Store) model {
 	l.KeyMap.Quit.SetEnabled(false) // "q"/"esc" must not quit; only ctrl+c does
 	l.Styles.Title = titleStyle
 	l.Styles.TitleBar = l.Styles.TitleBar.Padding(0, 0, 1, 0)
-	// Theme the paginator and help footer to match.
+	// Keep the paginator and help footer in the terminal's palette: muted gray
+	// labels, default-foreground keys. bubbles' defaults are fixed RGB grays, so
+	// every piece (separators, ellipsis, full-help view) needs the override.
 	l.Styles.HelpStyle = l.Styles.HelpStyle.Foreground(colorMuted)
 	l.Styles.PaginationStyle = l.Styles.PaginationStyle.Foreground(colorMuted)
-	l.Help.Styles.ShortKey = l.Help.Styles.ShortKey.Foreground(colorAccent)
+	l.Styles.ArabicPagination = lipgloss.NewStyle().Foreground(colorMuted)
+	l.Styles.NoItems = lipgloss.NewStyle().Foreground(colorMuted)
+	l.Help.Styles.ShortKey = l.Help.Styles.ShortKey.UnsetForeground()
 	l.Help.Styles.ShortDesc = l.Help.Styles.ShortDesc.Foreground(colorMuted)
+	l.Help.Styles.ShortSeparator = l.Help.Styles.ShortSeparator.Foreground(colorMuted)
+	l.Help.Styles.FullKey = l.Help.Styles.FullKey.UnsetForeground()
+	l.Help.Styles.FullDesc = l.Help.Styles.FullDesc.Foreground(colorMuted)
+	l.Help.Styles.FullSeparator = l.Help.Styles.FullSeparator.Foreground(colorMuted)
+	l.Help.Styles.Ellipsis = l.Help.Styles.Ellipsis.Foreground(colorMuted)
 
 	ti := textinput.New()
 	ti.CharLimit = 200
-	ti.PromptStyle = ti.PromptStyle.Foreground(colorAccent)
-	ti.Cursor.Style = ti.Cursor.Style.Foreground(colorAccent)
+	ti.PromptStyle = ti.PromptStyle.UnsetForeground()
+	ti.Cursor.Style = ti.Cursor.Style.UnsetForeground()
 	ti.PlaceholderStyle = ti.PlaceholderStyle.Foreground(colorMuted)
 
 	m := model{store: store, allTools: tools.All(), view: viewTools, list: l, input: ti, spinner: newSpinner()}
@@ -372,27 +382,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.view == viewProfiles && m.tool.ApplyAuth != nil {
-				it, ok := m.selectedProfile()
-				if !ok {
-					return m, nil
-				}
-				if it.value == profile.DefaultName {
-					m.setStatus(statusInfo, "the default profile can't be edited")
-					return m, nil
-				}
-				sp, ok := m.store.GetSpec(m.tool.Name, it.value)
-				if !ok {
-					// OAuth / captured backups have no endpoint/key to change.
-					m.setStatus(statusInfo, "this login backup has no editable settings")
-					return m, nil
-				}
-				m.wiz = wizard{name: it.value, origName: it.value, edit: true,
-					endpoint: sp.Endpoint, key: sp.Key, model: sp.Model}
-				m.editField = "" // fresh edit starts on the first field
-				m.view = viewEditForm
-				m.clearStatus()
-				m.loadEditForm()
-				return m, nil
+				return m.onEditKey()
 			}
 		case "b":
 			if m.view == viewProfiles {
@@ -403,18 +393,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "d":
 			if m.view == viewProfiles {
-				it, ok := m.selectedProfile()
-				if !ok {
-					return m, nil
-				}
-				if it.value == profile.DefaultName {
-					m.setStatus(statusInfo, "the default profile can't be deleted")
-					return m, nil
-				}
-				m.delTarget = it.value
-				m.view = viewConfirmDelete
-				m.clearStatus()
-				return m, nil
+				return m.onDeleteKey()
 			}
 		}
 	}
@@ -426,6 +405,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.skipSeparators(before)
 	}
 	return m, cmd
+}
+
+// onEditKey opens the edit form for the highlighted profile ("e" on the profiles
+// view). The default profile and captured login backups have nothing to edit.
+func (m model) onEditKey() (tea.Model, tea.Cmd) {
+	it, ok := m.selectedProfile()
+	if !ok {
+		return m, nil
+	}
+	if it.value == profile.DefaultName {
+		m.setStatus(statusInfo, "the default profile can't be edited")
+		return m, nil
+	}
+	sp, ok := m.store.GetSpec(m.tool.Name, it.value)
+	if !ok {
+		// OAuth / captured backups have no endpoint/key to change.
+		m.setStatus(statusInfo, "this login backup has no editable settings")
+		return m, nil
+	}
+	m.wiz = wizard{name: it.value, origName: it.value, edit: true,
+		endpoint: sp.Endpoint, key: sp.Key, model: sp.Model}
+	m.editField = "" // fresh edit starts on the first field
+	m.view = viewEditForm
+	m.clearStatus()
+	m.loadEditForm()
+	return m, nil
+}
+
+// onDeleteKey arms the confirm-delete prompt for the highlighted profile ("d" on
+// the profiles view). The default profile is not deletable.
+func (m model) onDeleteKey() (tea.Model, tea.Cmd) {
+	it, ok := m.selectedProfile()
+	if !ok {
+		return m, nil
+	}
+	if it.value == profile.DefaultName {
+		m.setStatus(statusInfo, "the default profile can't be deleted")
+		return m, nil
+	}
+	m.delTarget = it.value
+	m.view = viewConfirmDelete
+	m.clearStatus()
+	return m, nil
 }
 
 // startBackup routes the "b" shortcut by profile type: an OAuth/original login is

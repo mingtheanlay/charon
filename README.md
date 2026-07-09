@@ -112,6 +112,7 @@ charon models <tool>         # list models offered by an API (--key [--endpoint]
 charon add <tool>            # add + activate a profile (--name --key [--endpoint --model])
 charon edit <tool> <p>       # change a profile's endpoint/key/model (--name to rename)
 charon rename <tool> <o> <n> # rename a saved profile
+charon cp <tool> <src> <dst> # duplicate a saved profile
 charon switch <tool> <p>     # apply a saved profile (backs up current first)
 charon restore <tool>        # revert to the auto-captured default
 charon undo <tool>           # revert to the most recent pre-switch backup
@@ -138,8 +139,8 @@ source <(charon completion zsh)
 charon completion fish | source
 ```
 
-They complete subcommands, tool names, and — for `switch`/`edit`/`rename`/`rm` —
-saved profile names.
+They complete subcommands, tool names, and — for `switch`/`edit`/`rename`/`cp`/`rm`
+— saved profile names.
 
 ## Adding & editing profiles
 

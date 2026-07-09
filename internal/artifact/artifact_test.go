@@ -1,4 +1,4 @@
-package tools
+package artifact
 
 import (
 	"encoding/json"
@@ -155,10 +155,10 @@ func TestMergedFileArtifactPeek(t *testing.T) {
 
 func TestAtomicWriteReplaces(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "f")
-	if err := atomicWrite(path, []byte("v1"), 0o644); err != nil {
+	if err := AtomicWrite(path, []byte("v1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicWrite(path, []byte("v2"), 0o644); err != nil {
+	if err := AtomicWrite(path, []byte("v2"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(path)

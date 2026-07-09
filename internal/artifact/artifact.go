@@ -1,4 +1,7 @@
-package tools
+// Package artifact provides the snapshot/restore primitives for a tool's auth
+// surface: files on disk and OS keychain entries, plus the merge/rotate/peek
+// behaviors the profile store keys off.
+package artifact
 
 import (
 	"encoding/json"
@@ -96,7 +99,7 @@ func (f *FileArtifact) Write(data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(f.Path), 0o700); err != nil {
 		return err
 	}
-	return atomicWrite(f.Path, data, f.Perm)
+	return AtomicWrite(f.Path, data, f.Perm)
 }
 
 // Remove deletes the file; a missing file is not an error.
@@ -213,9 +216,9 @@ func (m *MergedFileArtifact) Peek(data []byte) (model, effort string) {
 	return model, effort
 }
 
-// atomicWrite writes data to path via a temp file + rename so a crash never
+// AtomicWrite writes data to path via a temp file + rename so a crash never
 // leaves a half-written credential file in place.
-func atomicWrite(path string, data []byte, perm os.FileMode) error {
+func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 	if perm == 0 {
 		perm = 0o600
 	}

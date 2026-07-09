@@ -227,20 +227,21 @@ func (m model) updateConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// finishAdd applies the wizard's endpoint/key/model and snapshots it as the named profile.
+// finishAdd applies the wizard's endpoint/key/model and snapshots it as the named
+// profile — via EditProfile when editing, so a rename also cleans up the old name.
 func (m model) finishAdd(name string) (tea.Model, tea.Cmd) {
 	spec := profile.Spec{Endpoint: m.wiz.endpoint, Key: m.wiz.key, Model: m.wiz.model}
-	if err := m.store.AddProfile(m.tool, name, spec); err != nil {
+	verb := "Added"
+	var err error
+	if m.wiz.edit {
+		verb = "Updated"
+		err = m.store.EditProfile(m.tool, m.wiz.origName, name, spec)
+	} else {
+		err = m.store.AddProfile(m.tool, name, spec)
+	}
+	if err != nil {
 		m.setStatus(statusErr, err.Error())
 	} else {
-		verb := "Added"
-		if m.wiz.edit {
-			verb = "Updated"
-			// If the profile was renamed, remove the old one.
-			if m.wiz.origName != "" && m.wiz.origName != name {
-				_ = m.store.Remove(m.tool.Name, m.wiz.origName)
-			}
-		}
 		model := m.wiz.model
 		if model == "" {
 			model = "no model override"

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"charon/internal/artifact"
 	"charon/internal/tools"
 )
 
@@ -18,9 +19,9 @@ func fakeTool(dir string) (*tools.Tool, string, string) {
 		Name:     "fake",
 		Title:    "Fake",
 		Detected: func() bool { _, err := os.Stat(cfg); return err == nil },
-		Artifacts: []tools.Artifact{
-			tools.NewFile("config", cfg, 0o644),
-			tools.NewFile("auth", auth, 0o600),
+		Artifacts: []artifact.Artifact{
+			artifact.NewFile("config", cfg, 0o644),
+			artifact.NewFile("auth", auth, 0o600),
 		},
 	}, cfg, auth
 }
@@ -61,7 +62,7 @@ func rotatingTool(dir string) (*tools.Tool, string, *fakeRotator) {
 		Name:      "rotating",
 		Title:     "Rotating",
 		Detected:  func() bool { _, err := os.Stat(cfg); return err == nil },
-		Artifacts: []tools.Artifact{tools.NewFile("config", cfg, 0o644), rot},
+		Artifacts: []artifact.Artifact{artifact.NewFile("config", cfg, 0o644), rot},
 	}, cfg, rot
 }
 
@@ -74,8 +75,8 @@ func mergedTool(dir string) (*tools.Tool, string) {
 		Name:     "merged",
 		Title:    "Merged",
 		Detected: func() bool { _, err := os.Stat(cfg); return err == nil },
-		Artifacts: []tools.Artifact{
-			tools.NewMergedJSONFile("settings.json", cfg, 0o600, "model"),
+		Artifacts: []artifact.Artifact{
+			artifact.NewMergedJSONFile("settings.json", cfg, 0o600, "model"),
 		},
 	}, cfg
 }
@@ -88,8 +89,8 @@ func mergedToolWithDisplay(dir string) (*tools.Tool, string) {
 		Name:     "merged-display",
 		Title:    "Merged Display",
 		Detected: func() bool { _, err := os.Stat(cfg); return err == nil },
-		Artifacts: []tools.Artifact{
-			tools.NewMergedJSONFile("settings.json", cfg, 0o600, "model", "effortLevel").
+		Artifacts: []artifact.Artifact{
+			artifact.NewMergedJSONFile("settings.json", cfg, 0o600, "model", "effortLevel").
 				WithDisplay("model", "effortLevel"),
 		},
 	}, cfg

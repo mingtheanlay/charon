@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
+
+	"charon/internal/artifact"
 )
 
 func home() string {
@@ -34,14 +36,14 @@ func newCodex() *Tool {
 		Title:           "Codex",
 		Provider:        "openai",
 		DefaultEndpoint: "https://api.openai.com/v1",
-		Artifacts: []Artifact{
+		Artifacts: []artifact.Artifact{
 			// Other config.toml settings (sandbox mode, approval policy, ...) are CLI
 			// preferences, not per-profile auth — preserved live. model and
 			// model_reasoning_effort switch with the profile, matching Claude Code.
-			NewMergedTOMLFile("config.toml", configPath, 0o600,
+			artifact.NewMergedTOMLFile("config.toml", configPath, 0o600,
 				"model", "model_context_window", "model_provider", "model_providers", "model_reasoning_effort").
 				WithDisplay("model", "model_reasoning_effort"),
-			NewRotatingFile("auth.json", authPath, 0o600), // ChatGPT OAuth tokens; Codex refreshes them in place
+			artifact.NewRotatingFile("auth.json", authPath, 0o600), // ChatGPT OAuth tokens; Codex refreshes them in place
 		},
 		ApplyAuth: func(a AuthSpec) error {
 			// Register a self-contained OpenAI-compatible provider (key embedded inline)
