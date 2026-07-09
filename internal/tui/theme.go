@@ -9,17 +9,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Charon palette: brand teal #377375 plus semantic feedback colors.
+// Charon palette: brand teal #377375 plus semantic feedback colors. Most entries are
+// AdaptiveColor so they stay readable on both light- and dark-background terminals
+// (lipgloss picks a side by querying the terminal's background at startup); colorPrimary
+// and colorOnDark are a fixed fill+text pair (the title bar's own teal background, not
+// the terminal's) so they don't need to adapt.
 var (
-	colorPrimary = lipgloss.Color("#377375") // brand teal
-	colorAccent  = lipgloss.Color("#5aa6a3") // lighter teal for highlights
-	colorText    = lipgloss.Color("#c7d6d5") // primary foreground
-	colorMuted   = lipgloss.Color("#6f8b89") // secondary / hints
-	colorOnDark  = lipgloss.Color("#e8f2f1") // text on a teal background
+	colorPrimary = lipgloss.Color("#377375") // brand teal, title-bar fill
+	colorOnDark  = lipgloss.Color("#e8f2f1") // text on the colorPrimary fill
 
-	colorSuccess = lipgloss.Color("#5fbf9f") // ✓ applied / saved / switched
-	colorError   = lipgloss.Color("#e06c75") // ✗ failures
-	colorWarn    = lipgloss.Color("#d9a441") // cautions (destructive actions)
+	colorAccent = lipgloss.AdaptiveColor{Light: "#1f6b68", Dark: "#5aa6a3"} // highlights
+	colorText   = lipgloss.AdaptiveColor{Light: "#22302f", Dark: "#c7d6d5"} // primary foreground
+	colorMuted  = lipgloss.AdaptiveColor{Light: "#5b7371", Dark: "#6f8b89"} // secondary / hints
+
+	colorSuccess = lipgloss.AdaptiveColor{Light: "#1f8f6f", Dark: "#5fbf9f"} // ✓ applied / saved / switched
+	colorError   = lipgloss.AdaptiveColor{Light: "#c13f4a", Dark: "#e06c75"} // ✗ failures
+	colorWarn    = lipgloss.AdaptiveColor{Light: "#946c00", Dark: "#d9a441"} // cautions (destructive actions)
 )
 
 var (

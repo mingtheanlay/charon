@@ -199,8 +199,8 @@ func TestClaudeApplyClearsStaleBaseURL(t *testing.T) {
 
 func TestClaudeApplyApprovesAPIKey(t *testing.T) {
 	home := sandboxHome(t)
-	key := "sk-ant-abcdefghij0123456789" // last 20 chars => "hij0123456789" padded
-	id := key[len(key)-20:]
+	key := "sk-ant-abcdefghij0123456789" // last claudeKeyIDLen chars => "hij0123456789" padded
+	id := key[len(key)-claudeKeyIDLen:]
 	// Simulate a prior "No" that left this key disabled in Claude Code.
 	writeFile(t, filepath.Join(home, ".claude", "settings.json"),
 		`{"customApiKeyResponses":{"approved":[],"disabled":["`+id+`"]}}`)

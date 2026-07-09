@@ -191,6 +191,18 @@ func (m model) inputView() bool {
 	return false
 }
 
+// selectedProfile returns the highlighted profile row, or false (with a status hint)
+// when the cursor is on a sentinel row like "Add new profile" or the divider — the
+// shared guard for the e/b/d shortcuts, which only act on real profiles.
+func (m *model) selectedProfile() (item, bool) {
+	it, ok := m.list.SelectedItem().(item)
+	if !ok || isSentinel(it.value) {
+		m.setStatus(statusInfo, "select a profile first")
+		return item{}, false
+	}
+	return it, true
+}
+
 // selectByValue moves the cursor to the row matching v; a miss keeps the default.
 func (m *model) selectByValue(v string) {
 	if v == "" {
@@ -349,44 +361,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.view == viewProfiles && m.tool.ApplyAuth != nil {
-				if it, ok := m.list.SelectedItem().(item); ok && !isSentinel(it.value) {
-					if it.value == profile.DefaultName {
-						m.setStatus(statusInfo, "the default profile can't be edited")
-						return m, nil
-					}
-					sp, ok := m.store.GetSpec(m.tool.Name, it.value)
-					if !ok {
-						// OAuth / captured backups have no endpoint/key to change.
-						m.setStatus(statusInfo, "this login backup has no editable settings")
-						return m, nil
-					}
-					m.wiz = wizard{name: it.value, origName: it.value, edit: true,
-						endpoint: sp.Endpoint, key: sp.Key, model: sp.Model}
-					m.editField = "" // fresh edit starts on the first field
-					m.view = viewEditForm
-					m.clearStatus()
-					m.loadEditForm()
+				it, ok := m.selectedProfile()
+				if !ok {
 					return m, nil
 				}
+				if it.value == profile.DefaultName {
+					m.setStatus(statusInfo, "the default profile can't be edited")
+					return m, nil
+				}
+				sp, ok := m.store.GetSpec(m.tool.Name, it.value)
+				if !ok {
+					// OAuth / captured backups have no endpoint/key to change.
+					m.setStatus(statusInfo, "this login backup has no editable settings")
+					return m, nil
+				}
+				m.wiz = wizard{name: it.value, origName: it.value, edit: true,
+					endpoint: sp.Endpoint, key: sp.Key, model: sp.Model}
+				m.editField = "" // fresh edit starts on the first field
+				m.view = viewEditForm
+				m.clearStatus()
+				m.loadEditForm()
+				return m, nil
 			}
 		case "b":
 			if m.view == viewProfiles {
-				if it, ok := m.list.SelectedItem().(item); ok && !isSentinel(it.value) {
+				if it, ok := m.selectedProfile(); ok {
 					return m.startBackup(it.value)
 				}
 				return m, nil
 			}
 		case "d":
 			if m.view == viewProfiles {
-				if it, ok := m.list.SelectedItem().(item); ok && !isSentinel(it.value) {
-					if it.value == profile.DefaultName {
-						m.setStatus(statusInfo, "the default profile can't be deleted")
-						return m, nil
-					}
-					m.delTarget = it.value
-					m.view = viewConfirmDelete
-					m.clearStatus()
+				it, ok := m.selectedProfile()
+				if !ok {
+					return m, nil
 				}
+				if it.value == profile.DefaultName {
+					m.setStatus(statusInfo, "the default profile can't be deleted")
+					return m, nil
+				}
+				m.delTarget = it.value
+				m.view = viewConfirmDelete
+				m.clearStatus()
 				return m, nil
 			}
 		}

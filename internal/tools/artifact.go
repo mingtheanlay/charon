@@ -1,9 +1,12 @@
 package tools
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+
+	toml "github.com/pelletier/go-toml/v2"
 
 	"charon/internal/secret"
 )
@@ -22,11 +25,32 @@ type Artifact interface {
 	Remove() error
 }
 
+// Rotator is implemented by artifacts whose live contents can change independent of
+// any profile switch — e.g. an OS keychain entry holding an OAuth token that the
+// underlying tool silently refreshes/rotates in the background. The store uses this
+// to keep such an artifact's stored snapshot fresh whenever its profile is about to
+// be left, so restoring it later doesn't hand back an already-invalidated token.
+type Rotator interface {
+	Rotates() bool
+}
+
+// Merger is implemented by an artifact whose restore should merge the snapshot with
+// the live file rather than fully overwrite it — e.g. a config file that mixes
+// profile-owned fields (auth/model routing) with CLI-level user preferences (theme,
+// reasoning effort, etc.) that should survive every profile switch instead of
+// reverting to whatever a profile last captured.
+type Merger interface {
+	// Merge returns what should be written: snapshotData, but with every top-level
+	// key not in the artifact's owned set taken from liveData instead.
+	Merge(snapshotData, liveData []byte) ([]byte, error)
+}
+
 // FileArtifact is a config or credential file owned by a tool.
 type FileArtifact struct {
-	id   string
-	Path string
-	Perm os.FileMode // permission used when writing (e.g. 0600 for secrets)
+	id       string
+	Path     string
+	Perm     os.FileMode // permission used when writing (e.g. 0600 for secrets)
+	rotating bool
 }
 
 // NewFile returns a FileArtifact stored under id with the given permissions.
@@ -34,8 +58,20 @@ func NewFile(id, path string, perm os.FileMode) *FileArtifact {
 	return &FileArtifact{id: id, Path: path, Perm: perm}
 }
 
+// NewRotatingFile is NewFile for a credential file whose contents a CLI silently
+// refreshes/rotates in the background (e.g. a ChatGPT/OAuth token file) — the store
+// keeps its stored snapshot fresh whenever its profile is about to be left, the same
+// way it does for a KeychainArtifact.
+func NewRotatingFile(id, path string, perm os.FileMode) *FileArtifact {
+	return &FileArtifact{id: id, Path: path, Perm: perm, rotating: true}
+}
+
 // ID returns the stable, filesystem-safe name used to store this artifact.
 func (f *FileArtifact) ID() string { return f.id }
+
+// Rotates reports whether this file's contents can change independent of a profile
+// switch (see NewRotatingFile).
+func (f *FileArtifact) Rotates() bool { return f.rotating }
 
 func (f *FileArtifact) Read() ([]byte, bool, error) {
 	data, err := os.ReadFile(f.Path)
@@ -62,6 +98,82 @@ func (f *FileArtifact) Remove() error {
 		return nil
 	}
 	return err
+}
+
+// MergedFileArtifact is a FileArtifact whose top-level keys split into two kinds:
+// ownedKeys (written per-profile, e.g. auth/model routing) and everything else — a
+// CLI-level preference (theme, reasoning effort, ...) that should survive every
+// profile switch rather than reverting to whatever a profile last captured.
+type MergedFileArtifact struct {
+	FileArtifact
+	ownedKeys []string
+	decode    func([]byte) (map[string]any, error)
+	encode    func(map[string]any) ([]byte, error)
+}
+
+// NewMergedJSONFile is NewFile for a JSON config file that mixes profile-owned
+// fields with CLI-level user preferences; only ownedKeys are swapped per profile.
+func NewMergedJSONFile(id, path string, perm os.FileMode, ownedKeys ...string) *MergedFileArtifact {
+	return &MergedFileArtifact{
+		FileArtifact: FileArtifact{id: id, Path: path, Perm: perm},
+		ownedKeys:    ownedKeys,
+		decode: func(b []byte) (map[string]any, error) {
+			m := map[string]any{}
+			if len(b) == 0 {
+				return m, nil
+			}
+			err := json.Unmarshal(b, &m)
+			return m, err
+		},
+		encode: func(m map[string]any) ([]byte, error) { return json.MarshalIndent(m, "", "  ") },
+	}
+}
+
+// NewMergedTOMLFile is NewMergedJSONFile for a TOML config file.
+func NewMergedTOMLFile(id, path string, perm os.FileMode, ownedKeys ...string) *MergedFileArtifact {
+	return &MergedFileArtifact{
+		FileArtifact: FileArtifact{id: id, Path: path, Perm: perm},
+		ownedKeys:    ownedKeys,
+		decode: func(b []byte) (map[string]any, error) {
+			m := map[string]any{}
+			if len(b) == 0 {
+				return m, nil
+			}
+			err := toml.Unmarshal(b, &m)
+			return m, err
+		},
+		encode: func(m map[string]any) ([]byte, error) { return toml.Marshal(m) },
+	}
+}
+
+// Merge returns snapshotData with every non-owned top-level key taken from liveData
+// instead, so restoring a profile can't clobber a live CLI preference. Falls back to
+// snapshotData unchanged if either side fails to parse, or live is empty (nothing to
+// preserve yet).
+func (m *MergedFileArtifact) Merge(snapshotData, liveData []byte) ([]byte, error) {
+	if len(liveData) == 0 {
+		return snapshotData, nil
+	}
+	snap, err := m.decode(snapshotData)
+	if err != nil {
+		return snapshotData, nil
+	}
+	live, err := m.decode(liveData)
+	if err != nil {
+		return snapshotData, nil
+	}
+	merged := make(map[string]any, len(live))
+	for k, v := range live {
+		merged[k] = v
+	}
+	for _, k := range m.ownedKeys {
+		if v, ok := snap[k]; ok {
+			merged[k] = v
+		} else {
+			delete(merged, k)
+		}
+	}
+	return m.encode(merged)
 }
 
 // atomicWrite writes data to path via a temp file + rename so a crash never
@@ -109,6 +221,10 @@ func NewKeychain(id, service, account string) *KeychainArtifact {
 
 // ID returns the stable, filesystem-safe name used to store this artifact.
 func (k *KeychainArtifact) ID() string { return k.id }
+
+// Rotates reports that a keychain entry's contents (e.g. an OAuth token) can change
+// outside of any profile switch, so the store should keep its snapshot refreshed.
+func (k *KeychainArtifact) Rotates() bool { return true }
 
 func (k *KeychainArtifact) Read() ([]byte, bool, error) {
 	v, err := secret.KeychainRead(k.Service)

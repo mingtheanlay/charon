@@ -21,7 +21,8 @@ func newClaude() *Tool {
 		Provider:        "anthropic",
 		DefaultEndpoint: "https://api.anthropic.com",
 		Artifacts: []Artifact{
-			NewFile("settings.json", settingsPath, 0o600), // may hold a Bearer token
+			// theme/effortLevel/etc. are CLI preferences, not per-profile auth — preserved live.
+			NewMergedJSONFile("settings.json", settingsPath, 0o600, "env", "customApiKeyResponses", "model"),
 			NewKeychain("credentials", claudeKeychainService, os.Getenv("USER")),
 		},
 		ApplyAuth: func(a AuthSpec) error {
@@ -133,12 +134,15 @@ func normalizeClaudeBaseURL(ep string) string {
 	return strings.TrimRight(ep, "/")
 }
 
-// claudeKeyID is how Claude Code identifies a key: its last 20 characters.
+// claudeKeyIDLen is how many trailing characters of a key Claude Code uses as its ID.
+const claudeKeyIDLen = 20
+
+// claudeKeyID is how Claude Code identifies a key: its last claudeKeyIDLen characters.
 func claudeKeyID(key string) string {
-	if len(key) <= 20 {
+	if len(key) <= claudeKeyIDLen {
 		return key
 	}
-	return key[len(key)-20:]
+	return key[len(key)-claudeKeyIDLen:]
 }
 
 // approveClaudeAPIKey marks key approved and un-disabled in customApiKeyResponses,

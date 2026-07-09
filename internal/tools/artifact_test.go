@@ -1,9 +1,12 @@
 package tools
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	toml "github.com/pelletier/go-toml/v2"
 )
 
 func TestFileArtifactRoundTrip(t *testing.T) {
@@ -40,6 +43,88 @@ func TestFileArtifactRoundTrip(t *testing.T) {
 	// Removing a missing artifact is not an error.
 	if err := a.Remove(); err != nil {
 		t.Errorf("Remove(absent): %v", err)
+	}
+}
+
+func TestMergedJSONFileMergePreservesNonOwnedKeys(t *testing.T) {
+	a := NewMergedJSONFile("settings.json", filepath.Join(t.TempDir(), "settings.json"), 0o600, "env", "model")
+
+	snapshot := []byte(`{"env":{"ANTHROPIC_API_KEY":"snap-key"},"model":"snap-model","theme":"dark"}`)
+	live := []byte(`{"env":{"ANTHROPIC_API_KEY":"live-key"},"model":"live-model","theme":"light","effortLevel":"medium"}`)
+
+	merged, err := a.Merge(snapshot, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(merged, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["theme"] != "light" {
+		t.Errorf("theme = %v, want live value %q (non-owned key must survive)", got["theme"], "light")
+	}
+	if got["effortLevel"] != "medium" {
+		t.Errorf("effortLevel = %v, want live value %q (non-owned key, absent from snapshot)", got["effortLevel"], "medium")
+	}
+	if got["model"] != "snap-model" {
+		t.Errorf("model = %v, want snapshot value %q (owned key must switch per profile)", got["model"], "snap-model")
+	}
+	env, _ := got["env"].(map[string]any)
+	if env["ANTHROPIC_API_KEY"] != "snap-key" {
+		t.Errorf("env.ANTHROPIC_API_KEY = %v, want snapshot value %q", env["ANTHROPIC_API_KEY"], "snap-key")
+	}
+}
+
+func TestMergedJSONFileMergeDropsOwnedKeyAbsentFromSnapshot(t *testing.T) {
+	a := NewMergedJSONFile("settings.json", filepath.Join(t.TempDir(), "settings.json"), 0o600, "model")
+
+	snapshot := []byte(`{"theme":"dark"}`) // no "model" key in this profile
+	live := []byte(`{"theme":"dark","model":"live-model"}`)
+
+	merged, err := a.Merge(snapshot, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(merged, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := got["model"]; exists {
+		t.Errorf("model = %v, want absent (snapshot has no owned value to restore)", got["model"])
+	}
+}
+
+func TestMergedJSONFileMergeFallsBackWhenLiveEmptyOrUnparseable(t *testing.T) {
+	a := NewMergedJSONFile("settings.json", filepath.Join(t.TempDir(), "settings.json"), 0o600, "model")
+	snapshot := []byte(`{"model":"snap-model","theme":"dark"}`)
+
+	if merged, err := a.Merge(snapshot, nil); err != nil || string(merged) != string(snapshot) {
+		t.Errorf("Merge with empty live = %q, %v; want snapshot unchanged", merged, err)
+	}
+	if merged, err := a.Merge(snapshot, []byte("not json")); err != nil || string(merged) != string(snapshot) {
+		t.Errorf("Merge with unparseable live = %q, %v; want snapshot unchanged", merged, err)
+	}
+}
+
+func TestMergedTOMLFileMergePreservesNonOwnedKeys(t *testing.T) {
+	a := NewMergedTOMLFile("config.toml", filepath.Join(t.TempDir(), "config.toml"), 0o600, "model")
+
+	snapshot := []byte("model = \"snap-model\"\n")
+	live := []byte("model = \"live-model\"\napproval_policy = \"never\"\n")
+
+	merged, err := a.Merge(snapshot, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := toml.Unmarshal(merged, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["model"] != "snap-model" {
+		t.Errorf("model = %v, want snapshot value %q", got["model"], "snap-model")
+	}
+	if got["approval_policy"] != "never" {
+		t.Errorf("approval_policy = %v, want live value %q (non-owned key must survive)", got["approval_policy"], "never")
 	}
 }
 

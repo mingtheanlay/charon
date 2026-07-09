@@ -35,8 +35,11 @@ func newCodex() *Tool {
 		Provider:        "openai",
 		DefaultEndpoint: "https://api.openai.com/v1",
 		Artifacts: []Artifact{
-			NewFile("config.toml", configPath, 0o600), // holds the inline bearer token
-			NewFile("auth.json", authPath, 0o600),
+			// Other config.toml settings (sandbox mode, approval policy, ...) are CLI
+			// preferences, not per-profile auth — preserved live.
+			NewMergedTOMLFile("config.toml", configPath, 0o600,
+				"model", "model_context_window", "model_provider", "model_providers"),
+			NewRotatingFile("auth.json", authPath, 0o600), // ChatGPT OAuth tokens; Codex refreshes them in place
 		},
 		ApplyAuth: func(a AuthSpec) error {
 			// Register a self-contained OpenAI-compatible provider (key embedded inline)

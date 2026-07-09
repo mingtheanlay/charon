@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,6 +23,61 @@ func fakeTool(dir string) (*tools.Tool, string, string) {
 			tools.NewFile("auth", auth, 0o600),
 		},
 	}, cfg, auth
+}
+
+// fakeRotator is an in-memory artifact that reports Rotates()==true, standing in for
+// a keychain entry (e.g. Claude Code's OAuth token) without touching the real OS
+// keychain, which tests must never do.
+type fakeRotator struct {
+	id    string
+	value *string // nil = absent
+}
+
+func (f *fakeRotator) ID() string    { return f.id }
+func (f *fakeRotator) Rotates() bool { return true }
+func (f *fakeRotator) Read() ([]byte, bool, error) {
+	if f.value == nil {
+		return nil, false, nil
+	}
+	return []byte(*f.value), true, nil
+}
+func (f *fakeRotator) Write(data []byte) error {
+	s := string(data)
+	f.value = &s
+	return nil
+}
+func (f *fakeRotator) Remove() error {
+	f.value = nil
+	return nil
+}
+
+// rotatingTool builds a tool with a plain config file plus a fakeRotator standing in
+// for a keychain-backed credential, so the store can be exercised without the OS
+// keychain.
+func rotatingTool(dir string) (*tools.Tool, string, *fakeRotator) {
+	cfg := filepath.Join(dir, "config")
+	rot := &fakeRotator{id: "credentials"}
+	return &tools.Tool{
+		Name:      "rotating",
+		Title:     "Rotating",
+		Detected:  func() bool { _, err := os.Stat(cfg); return err == nil },
+		Artifacts: []tools.Artifact{tools.NewFile("config", cfg, 0o644), rot},
+	}, cfg, rot
+}
+
+// mergedTool builds a tool whose config is a JSON file mixing a "model" (profile-
+// owned) key with a "theme" (live CLI preference) key, so switching profiles can be
+// exercised without touching a real Claude/Codex/OpenCode config.
+func mergedTool(dir string) (*tools.Tool, string) {
+	cfg := filepath.Join(dir, "settings.json")
+	return &tools.Tool{
+		Name:     "merged",
+		Title:    "Merged",
+		Detected: func() bool { _, err := os.Stat(cfg); return err == nil },
+		Artifacts: []tools.Artifact{
+			tools.NewMergedJSONFile("settings.json", cfg, 0o600, "model"),
+		},
+	}, cfg
 }
 
 // newStore roots the store in an isolated temp dir.
@@ -147,6 +203,119 @@ func TestApplyRemovesAbsentArtifact(t *testing.T) {
 	}
 	if _, err := os.Stat(auth); !os.IsNotExist(err) {
 		t.Error("apply did not remove artifact absent from the profile")
+	}
+}
+
+// TestSwitchingAwayRefreshesRotatingArtifact reproduces the "Claude Code always
+// asks to log back in after switching back to default" bug: an OAuth token in the
+// keychain rotates in the background, so a profile captured once and never
+// refreshed goes stale by the time it's restored. Switching away from a profile
+// must refresh its stored rotating artifact from the live value first.
+func TestSwitchingAwayRefreshesRotatingArtifact(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, rot := rotatingTool(dir)
+	write(t, cfg, "c1")
+	tok1 := "token-v1"
+	rot.value = &tok1
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+
+	// A second profile "work" already exists from some earlier point in time.
+	write(t, cfg, "work-cfg")
+	tokWork := "work-token"
+	rot.value = &tokWork
+	if err := s.Save(tool, "work", "Work", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Live state returns to what "default" (still active) actually looks like now:
+	// its token has since rotated in the background, same as Claude Code silently
+	// refreshing an OAuth session with no profile switch involved.
+	write(t, cfg, "c1")
+	rotated := "token-v2"
+	rot.value = &rotated
+
+	// Switching to "work" must refresh default's stored credentials to this live,
+	// rotated value before leaving it — otherwise the stale token-v1 sticks around.
+	if _, err := s.Apply(tool, "work"); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := os.ReadFile(filepath.Join(s.profDir("rotating", DefaultName), "credentials"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != "token-v2" {
+		t.Errorf("default's stored credentials = %q, want refreshed value %q (not the stale first capture)", stored, "token-v2")
+	}
+
+	// Switching back to default must restore that refreshed token, not the stale one.
+	if _, err := s.Apply(tool, DefaultName); err != nil {
+		t.Fatal(err)
+	}
+	if rot.value == nil || *rot.value != "token-v2" {
+		t.Errorf("live credentials after restoring default = %v, want token-v2", rot.value)
+	}
+}
+
+// TestApplyPreservesLiveNonOwnedPreference reproduces "switching charon profiles
+// resets Claude Code's /model or /effort choice": settings.json mixes a profile-owned
+// field ("model") with a live CLI preference ("theme") that switching must not touch.
+func TestApplyPreservesLiveNonOwnedPreference(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg := mergedTool(dir)
+	write(t, cfg, `{"model":"default-model","theme":"dark"}`)
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	write(t, cfg, `{"model":"work-model","theme":"dark"}`)
+	if err := s.Save(tool, "work", "Work", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// User changes their CLI preference live, unrelated to any profile switch.
+	write(t, cfg, `{"model":"default-model","theme":"light"}`)
+
+	if _, err := s.Apply(tool, "work"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(cfg)
+	var after map[string]any
+	if err := json.Unmarshal(got, &after); err != nil {
+		t.Fatal(err)
+	}
+	if after["model"] != "work-model" {
+		t.Errorf("model = %v, want work-model (owned key must switch per profile)", after["model"])
+	}
+	if after["theme"] != "light" {
+		t.Errorf("theme = %v, want light (live preference must survive the switch)", after["theme"])
+	}
+}
+
+// TestDriftIgnoresLiveNonOwnedPreference ensures a live-only preference change (e.g.
+// /theme in a running Claude Code session) is not mistaken for external drift.
+func TestDriftIgnoresLiveNonOwnedPreference(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg := mergedTool(dir)
+	write(t, cfg, `{"model":"default-model","theme":"dark"}`)
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	write(t, cfg, `{"model":"default-model","theme":"light"}`)
+	if drift, err := s.Drift(tool); err != nil || drift {
+		t.Fatalf("drift = %v, err = %v; want false, nil (preference-only change)", drift, err)
+	}
+	// A change to the owned field is real drift.
+	write(t, cfg, `{"model":"changed-outside-charon","theme":"light"}`)
+	if drift, err := s.Drift(tool); err != nil || !drift {
+		t.Fatalf("drift = %v, err = %v; want true, nil (owned field changed)", drift, err)
 	}
 }
 

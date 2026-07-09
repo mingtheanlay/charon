@@ -139,7 +139,7 @@ func (s *Store) LoadManifest(tool, name string) (Manifest, error) {
 }
 
 // snapshot captures the tool's current live artifacts into dir.
-func snapshot(t *tools.Tool, dir string, label, note, account string, spec *Spec) error {
+func snapshot(t *tools.Tool, dir string, label, note, account, active string, spec *Spec) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -156,7 +156,7 @@ func snapshot(t *tools.Tool, dir string, label, note, account string, spec *Spec
 			}
 		}
 	}
-	m := Manifest{Label: label, Note: note, CreatedAt: time.Now(), Present: present, Spec: spec, Account: account}
+	m := Manifest{Label: label, Note: note, CreatedAt: time.Now(), Present: present, Spec: spec, Account: account, Active: active}
 	data, _ := json.MarshalIndent(m, "", "  ")
 	return os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o600)
 }
@@ -166,12 +166,12 @@ func (s *Store) Save(t *tools.Tool, name, label, note string) error {
 	if label == "" {
 		label = name
 	}
-	return snapshot(t, s.profDir(t.Name, name), label, note, "", nil)
+	return snapshot(t, s.profDir(t.Name, name), label, note, "", "", nil)
 }
 
 // SaveWithSpec is Save plus the endpoint/key/model the profile was built from, for editing.
 func (s *Store) SaveWithSpec(t *tools.Tool, name string, spec Spec) error {
-	return snapshot(t, s.profDir(t.Name, name), name, "", "", &spec)
+	return snapshot(t, s.profDir(t.Name, name), name, "", "", "", &spec)
 }
 
 // SaveCurrentAccount snapshots the tool's live config under a profile named after
@@ -192,7 +192,7 @@ func (s *Store) SaveCurrentAccount(t *tools.Tool) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("account %q is not a usable profile name", info.Account)
 	}
-	if err := snapshot(t, s.profDir(t.Name, name), info.Account, "", info.Account, nil); err != nil {
+	if err := snapshot(t, s.profDir(t.Name, name), info.Account, "", info.Account, "", nil); err != nil {
 		return "", err
 	}
 	if err := s.setActive(t.Name, name); err != nil {
@@ -230,6 +230,7 @@ func (s *Store) AddProfile(t *tools.Tool, name string, spec Spec) error {
 	}
 	// Back up the current live config first so the write is reversible via undo.
 	if t.Detected != nil && t.Detected() {
+		s.refreshKeychainArtifacts(t)
 		if _, err := s.backup(t, "auto-backup before adding "+name); err != nil {
 			return fmt.Errorf("backup failed, aborting: %w", err)
 		}
@@ -273,6 +274,48 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 	return nil
 }
 
+// refreshKeychainArtifacts overwrites the currently active profile's stored copy of
+// any keychain-backed artifact with its current live value, before that profile is
+// left. OS keychain entries commonly hold OAuth tokens the underlying tool silently
+// refreshes/rotates in the background (e.g. Claude Code's login) — freezing one at
+// first capture makes the profile's login go stale, forcing a fresh login the next
+// time it's restored. Ordinary config-file artifacts are untouched: Apply's revert-
+// to-snapshot behavior for those (see Drift) is deliberate, not staleness to fix.
+func (s *Store) refreshKeychainArtifacts(t *tools.Tool) {
+	active := s.Active(t.Name)
+	if active == "" || !s.Exists(t.Name, active) {
+		return
+	}
+	m, err := s.LoadManifest(t.Name, active)
+	if err != nil {
+		return
+	}
+	dir := s.profDir(t.Name, active)
+	changed := false
+	for _, a := range t.Artifacts {
+		r, ok := a.(tools.Rotator)
+		if !ok || !r.Rotates() {
+			continue
+		}
+		data, exists, err := a.Read()
+		if err != nil {
+			continue
+		}
+		if exists != m.Present[a.ID()] {
+			m.Present[a.ID()] = exists
+			changed = true
+		}
+		if exists {
+			_ = os.WriteFile(filepath.Join(dir, a.ID()), data, 0o600)
+		}
+	}
+	if changed {
+		if out, err := json.MarshalIndent(m, "", "  "); err == nil {
+			_ = os.WriteFile(filepath.Join(dir, "manifest.json"), out, 0o600)
+		}
+	}
+}
+
 // backupKeep is how many timestamped backups to retain per tool after a switch/undo.
 const backupKeep = 10
 
@@ -281,20 +324,7 @@ func (s *Store) Apply(t *tools.Tool, name string) (backupDir string, err error) 
 	if !s.Exists(t.Name, name) {
 		return "", fmt.Errorf("profile %q not found for %s", name, t.Name)
 	}
-
-	// Back up current live state so the switch is reversible.
-	backupDir, err = s.backup(t, "auto-backup before switch to "+name)
-	if err != nil {
-		return "", fmt.Errorf("backup failed, aborting: %w", err)
-	}
-	if err := s.restoreFrom(t, s.profDir(t.Name, name)); err != nil {
-		return backupDir, err
-	}
-	if err := s.setActive(t.Name, name); err != nil {
-		return backupDir, err
-	}
-	_ = s.pruneBackups(t.Name, backupKeep)
-	return backupDir, nil
+	return s.switchTo(t, s.profDir(t.Name, name), "auto-backup before switch to "+name, name)
 }
 
 // Undo reverts a tool to its most recent backup (the pre-switch state), snapshotting
@@ -304,42 +334,37 @@ func (s *Store) Undo(t *tools.Tool) (restoredFrom string, err error) {
 	if err != nil {
 		return "", err
 	}
-	// Capture current live state (as the newest backup) before overwriting it.
-	if _, err := s.backup(t, "auto-backup before undo"); err != nil {
+	return s.switchTo(t, target, "auto-backup before undo", prevActive)
+}
+
+// switchTo backs up the tool's current live state, restores sourceDir over it, and
+// marks resultingActive active (skipped when empty, as Undo has none to restore
+// from a backup taken before charon tracked the active profile). Shared by Apply
+// and Undo so the backup→restore→prune sequence can't drift between them.
+func (s *Store) switchTo(t *tools.Tool, sourceDir, backupLabel, resultingActive string) (backupDir string, err error) {
+	s.refreshKeychainArtifacts(t)
+	backupDir, err = s.backup(t, backupLabel)
+	if err != nil {
 		return "", fmt.Errorf("backup failed, aborting: %w", err)
 	}
-	if err := s.restoreFrom(t, target); err != nil {
-		return target, err
+	if err := s.restoreFrom(t, sourceDir); err != nil {
+		return backupDir, err
 	}
-	// Restore charon's own bookkeeping when the backup recorded it.
-	if prevActive != "" {
-		if err := s.setActive(t.Name, prevActive); err != nil {
-			return target, err
+	if resultingActive != "" {
+		if err := s.setActive(t.Name, resultingActive); err != nil {
+			return backupDir, err
 		}
 	}
 	_ = s.pruneBackups(t.Name, backupKeep)
-	return target, nil
+	return backupDir, nil
 }
 
 // backup snapshots the tool's current live config into a fresh timestamped backup
 // dir, recording the active profile so Undo can restore it. Returns the dir.
 func (s *Store) backup(t *tools.Tool, label string) (string, error) {
 	dir := s.uniqueBackupDir(t.Name)
-	if err := snapshot(t, dir, label, "", "", nil); err != nil {
+	if err := snapshot(t, dir, label, "", "", s.Active(t.Name), nil); err != nil {
 		return "", err
-	}
-	// Patch in the active-at-backup profile (snapshot doesn't know it), for undo.
-	if active := s.Active(t.Name); active != "" {
-		mpath := filepath.Join(dir, "manifest.json")
-		if data, rerr := os.ReadFile(mpath); rerr == nil {
-			var m Manifest
-			if json.Unmarshal(data, &m) == nil {
-				m.Active = active
-				if out, merr := json.MarshalIndent(m, "", "  "); merr == nil {
-					_ = os.WriteFile(mpath, out, 0o600)
-				}
-			}
-		}
 	}
 	return dir, nil
 }
@@ -375,6 +400,13 @@ func (s *Store) restoreFrom(t *tools.Tool, dir string) error {
 			data, rerr := os.ReadFile(filepath.Join(dir, a.ID()))
 			if rerr != nil {
 				return rerr
+			}
+			if merger, ok := a.(tools.Merger); ok {
+				if live, _, rerr := a.Read(); rerr == nil {
+					if merged, merr := merger.Merge(data, live); merr == nil {
+						data = merged
+					}
+				}
 			}
 			if werr := a.Write(data); werr != nil {
 				return werr
@@ -594,6 +626,15 @@ func (s *Store) Drift(t *tools.Tool) (bool, error) {
 		want, err := os.ReadFile(filepath.Join(pdir, a.ID()))
 		if err != nil {
 			return false, err
+		}
+		if merger, ok := a.(tools.Merger); ok {
+			// Compare canonically re-encoded forms so Merge's own formatting (key order,
+			// indentation) can't itself register as drift.
+			if expected, merr := merger.Merge(want, live); merr == nil {
+				if canonicalLive, lerr := merger.Merge(live, live); lerr == nil {
+					want, live = expected, canonicalLive
+				}
+			}
 		}
 		if !bytes.Equal(want, live) {
 			return true, nil
