@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"charon/internal/artifact"
 )
@@ -36,8 +37,8 @@ func newOpenCode() *Tool {
 		Artifacts: []artifact.Artifact{
 			// The config holds provider options.apiKey, so keep it private. Other top-level
 			// settings (e.g. theme) are CLI preferences, not per-profile auth — preserved live.
-			artifact.NewMergedJSONFile(filepath.Base(configPath), configPath, 0o600, "provider", "model").
-				WithDisplay("model", ""),
+			artifact.NewMergedJSONFile(filepath.Base(configPath), configPath, 0o600, "provider", "model", "small_model", "reasoningEffort", "agent", "agents").
+				WithDisplay("model", "reasoningEffort"),
 			artifact.NewRotatingFile("auth.json", authPath, 0o600), // OAuth logins (e.g. github-copilot); OpenCode refreshes them in place
 		},
 		ApplyAuth: func(a AuthSpec) error {
@@ -84,6 +85,17 @@ func newOpenCode() *Tool {
 			// A charon-managed provider keeps endpoint + key in the config.
 			if data, err := os.ReadFile(configPath); err == nil {
 				var cfg struct {
+					Model           string `json:"model"`
+					SmallModel      string `json:"small_model"`
+					ReasoningEffort string `json:"reasoningEffort"`
+					Agent           map[string]struct {
+						Model           string `json:"model"`
+						ReasoningEffort string `json:"reasoningEffort"`
+					} `json:"agent"`
+					Agents map[string]struct {
+						Model           string `json:"model"`
+						ReasoningEffort string `json:"reasoningEffort"`
+					} `json:"agents"`
 					Provider map[string]struct {
 						Options struct {
 							BaseURL string `json:"baseURL"`
@@ -92,6 +104,46 @@ func newOpenCode() *Tool {
 					} `json:"provider"`
 				}
 				if json.Unmarshal(data, &cfg) == nil {
+					info.Model = strings.TrimPrefix(cfg.Model, "charon/")
+					if info.Model == "" {
+						info.Model = strings.TrimPrefix(cfg.SmallModel, "charon/")
+					}
+					info.Effort = cfg.ReasoningEffort
+
+					// Fallback to agent-specific configs
+					if info.Model == "" {
+						for _, agent := range cfg.Agents {
+							if agent.Model != "" {
+								info.Model = strings.TrimPrefix(agent.Model, "charon/")
+								break
+							}
+						}
+					}
+					if info.Model == "" && cfg.Agent != nil {
+						for _, agent := range cfg.Agent {
+							if agent.Model != "" {
+								info.Model = strings.TrimPrefix(agent.Model, "charon/")
+								break
+							}
+						}
+					}
+
+					if info.Effort == "" {
+						for _, agent := range cfg.Agents {
+							if agent.ReasoningEffort != "" {
+								info.Effort = agent.ReasoningEffort
+								break
+							}
+						}
+					}
+					if info.Effort == "" && cfg.Agent != nil {
+						for _, agent := range cfg.Agent {
+							if agent.ReasoningEffort != "" {
+								info.Effort = agent.ReasoningEffort
+								break
+							}
+						}
+					}
 					if p, ok := cfg.Provider["charon"]; ok {
 						info.Endpoint = p.Options.BaseURL
 						if p.Options.APIKey != "" {

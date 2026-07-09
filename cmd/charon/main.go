@@ -34,7 +34,7 @@ func run(args []string) error {
 	}
 
 	if len(args) == 0 {
-		return tui.Run(store)
+		return tui.Run(store, version)
 	}
 
 	switch args[0] {

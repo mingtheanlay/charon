@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,8 +24,17 @@ func snapshot(t *tools.Tool, dir string, label, note, account, active string, sp
 		}
 		present[a.ID()] = exists
 		if exists {
-			if err := artifact.AtomicWrite(filepath.Join(dir, a.ID()), data, 0o600); err != nil {
+			path := filepath.Join(dir, a.ID())
+			if err := artifact.AtomicWrite(path, data, 0o600); err != nil {
 				return err
+			}
+			// Verification step: read it back and verify content matches exactly
+			backedData, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("verifying backup of %s: failed to read written file: %w", a.ID(), err)
+			}
+			if !bytes.Equal(backedData, data) {
+				return fmt.Errorf("verifying backup of %s: content mismatch", a.ID())
 			}
 		}
 	}
@@ -70,9 +80,6 @@ func (s *Store) SaveCurrentAccount(t *tools.Tool) (string, error) {
 		return "", fmt.Errorf("account %q is not a usable profile name", info.Account)
 	}
 	if err := snapshot(t, s.profDir(t.Name, name), info.Account, "", info.Account, "", nil); err != nil {
-		return "", err
-	}
-	if err := s.setActive(t.Name, name); err != nil {
 		return "", err
 	}
 	return name, nil

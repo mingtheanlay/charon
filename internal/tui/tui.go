@@ -25,8 +25,8 @@ import (
 )
 
 // Run starts the interactive menu against the given store.
-func Run(store *profile.Store) error {
-	_, err := tea.NewProgram(newModel(store), tea.WithAltScreen()).Run()
+func Run(store *profile.Store, version string) error {
+	_, err := tea.NewProgram(newModel(store, version), tea.WithAltScreen()).Run()
 	return err
 }
 
@@ -117,6 +117,7 @@ type model struct {
 	statusLvl   statusLevel
 	width       int
 	height      int
+	version     string
 }
 
 // setStatus records a footer message at the given severity.
@@ -154,7 +155,7 @@ func (m *model) resize() {
 	m.list.SetSize(m.width, h)
 }
 
-func newModel(store *profile.Store) model {
+func newModel(store *profile.Store, version string) model {
 	l := list.New(nil, themedDelegate(), 0, 0)
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(false)
@@ -189,7 +190,7 @@ func newModel(store *profile.Store) model {
 	ti.Cursor.Style = ti.Cursor.Style.Foreground(colorAccent)
 	ti.Cursor.SetMode(cursor.CursorStatic)
 
-	m := model{store: store, allTools: tools.All(), view: viewTools, list: l, input: ti, spinner: newSpinner()}
+	m := model{store: store, allTools: tools.All(), view: viewTools, list: l, input: ti, spinner: newSpinner(), version: version}
 	m.loadTools()
 	return m
 }
@@ -474,8 +475,8 @@ func (m model) onDeleteKey() (tea.Model, tea.Cmd) {
 // snapshotted straight away, named after its account (non-editable); an API-proxy
 // profile opens a name prompt to make an editable, deletable duplicate.
 func (m model) startBackup(name string) (tea.Model, tea.Cmd) {
-	if _, ok := m.store.GetSpec(m.tool.Name, name); ok {
-		// API proxy → duplicate with a numbered name the user can adjust.
+	if _, ok := m.store.GetSpec(m.tool.Name, name); ok || name == profile.DefaultName {
+		// API proxy or default → duplicate with a numbered name the user can adjust.
 		m.dupSource = name
 		m.view = viewDupName
 		m.startInput("new profile name", false)

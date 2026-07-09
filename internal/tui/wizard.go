@@ -228,6 +228,13 @@ func (m model) updateConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		name := m.delTarget
 		m.delTarget = ""
 		m.view = viewProfiles
+		if m.store.Active(m.tool.Name) == name {
+			if _, err := m.store.Apply(m.tool, profile.DefaultName); err != nil {
+				m.setStatus(statusErr, err.Error())
+				m.loadProfiles(name)
+				return m, nil
+			}
+		}
 		if err := m.store.Remove(m.tool.Name, name); err != nil {
 			m.setStatus(statusErr, err.Error())
 			m.loadProfiles(name)

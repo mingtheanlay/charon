@@ -228,6 +228,9 @@ func cmdSave(store *profile.Store, args []string) error {
 		if err != nil {
 			return err
 		}
+		if err := store.SetActiveName(t.Name, saved); err != nil {
+			return err
+		}
 		fmt.Printf("Backed up current %s account as profile %q (now active)\n", t.Title, saved)
 		return nil
 	}
@@ -417,6 +420,11 @@ func cmdRemove(store *profile.Store, args []string) error {
 	t, err := requireTool(args[0])
 	if err != nil {
 		return err
+	}
+	if store.Active(t.Name) == args[1] {
+		if _, err := store.Apply(t, profile.DefaultName); err != nil {
+			return err
+		}
 	}
 	if err := store.Remove(t.Name, args[1]); err != nil {
 		return err

@@ -20,8 +20,12 @@ var (
 )
 
 // banner returns the styled splash shown atop the tool-selection screen.
-func banner() string {
+func banner(version string) string {
+	tag := "⛴  ferry your AI tools between endpoints"
+	if version != "" {
+		tag += "  ·  v" + version
+	}
 	return bannerStyle.Render(bannerArt) + "\n" +
-		taglineStyle.Render("⛴  ferry your AI tools between endpoints") + "  " +
+		taglineStyle.Render(tag) + "  " +
 		hintStyle.Render("· ↑/↓ move · ? help · ctrl+c quit")
 }

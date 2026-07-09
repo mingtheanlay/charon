@@ -40,7 +40,7 @@ func (m model) View() string {
 	}
 	out := m.list.View()
 	if m.view == viewTools {
-		out = banner() + "\n\n" + out // blank line between the banner and the list title
+		out = banner(m.version) + "\n\n" + out // blank line between the banner and the list title
 	}
 	if line := statusRender(m.statusLvl, m.status); line != "" {
 		out += "\n" + line

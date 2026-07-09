@@ -17,7 +17,13 @@ func (s *Store) Remove(tool, name string) error {
 	if !s.Exists(tool, name) {
 		return fmt.Errorf("profile %q not found for %s", name, tool)
 	}
-	return os.RemoveAll(s.profDir(tool, name))
+	if err := os.RemoveAll(s.profDir(tool, name)); err != nil {
+		return err
+	}
+	if s.Active(tool) == name {
+		return s.setActive(tool, DefaultName)
+	}
+	return nil
 }
 
 // Rename moves a stored profile, updating the active pointer and a name-mirroring

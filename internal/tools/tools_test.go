@@ -367,11 +367,23 @@ func TestOpenCodeDescribeAndApply(t *testing.T) {
 	if err := c.ApplyAuth(AuthSpec{Endpoint: "https://openrouter.ai/api/v1", Key: "sk-or-123456789", Model: "x/y"}); err != nil {
 		t.Fatal(err)
 	}
+
+	// Verify Describe returns the correct model.
+	info, err := c.Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Model != "x/y" {
+		t.Errorf("Describe model = %q, want %q", info.Model, "x/y")
+	}
+
 	// The provider (with key in options.apiKey and a models map) must be written
 	// into the config. With no existing config file, charon defaults to the
 	// current opencode.jsonc name; auth.json must keep its existing login.
 	var cfg struct {
-		Provider map[string]struct {
+		Model           string `json:"model"`
+		ReasoningEffort string `json:"reasoningEffort"`
+		Provider        map[string]struct {
 			Options struct {
 				BaseURL string `json:"baseURL"`
 				APIKey  string `json:"apiKey"`
@@ -379,7 +391,8 @@ func TestOpenCodeDescribeAndApply(t *testing.T) {
 			Models map[string]any `json:"models"`
 		} `json:"provider"`
 	}
-	cfgData, _ := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.jsonc"))
+	jsoncPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	cfgData, _ := os.ReadFile(jsoncPath)
 	_ = json.Unmarshal(cfgData, &cfg)
 	p, ok := cfg.Provider["charon"]
 	if !ok {
@@ -396,6 +409,47 @@ func TestOpenCodeDescribeAndApply(t *testing.T) {
 	_ = json.Unmarshal(data, &auth)
 	if auth["opencode"] == nil {
 		t.Error("apply must not drop existing login 'opencode' in auth.json")
+	}
+
+	// Manually write reasoningEffort to the config and check if Describe reads it.
+	cfg.ReasoningEffort = "medium"
+	cfgBytes, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsoncPath, cfgBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err = c.Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Effort != "medium" {
+		t.Errorf("Describe effort = %q, want %q", info.Effort, "medium")
+	}
+
+	// Manually write an agents block to test nested parsing of model and effort
+	agentConfig := `{
+		"$schema": "https://opencode.ai/config.json",
+		"agents": {
+			"coder": {
+				"model": "charon/deepseek-v4",
+				"reasoningEffort": "high"
+			}
+		}
+	}`
+	if err := os.WriteFile(jsoncPath, []byte(agentConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err = c.Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Model != "deepseek-v4" {
+		t.Errorf("Describe nested model = %q, want %q", info.Model, "deepseek-v4")
+	}
+	if info.Effort != "high" {
+		t.Errorf("Describe nested effort = %q, want %q", info.Effort, "high")
 	}
 }
 

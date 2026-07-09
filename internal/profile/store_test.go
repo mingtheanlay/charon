@@ -423,6 +423,45 @@ func TestProfileModelEffortReflectsEachProfilesOwnCapture(t *testing.T) {
 	}
 }
 
+func TestOpenCodeProfileModelEffort(t *testing.T) {
+	s := newStore(t)
+	// Create a profile for opencode manually by writing the config
+	tool := tools.Find("opencode")
+	if tool == nil {
+		t.Fatal("opencode tool not registered")
+	}
+	dir := s.profDir(tool.Name, "test-opencode")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfgData := `{
+		"$schema": "https://opencode.ai/config.json",
+		"agents": {
+			"coder": {
+				"model": "charon/deepseek-r1",
+				"reasoningEffort": "medium"
+			}
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "opencode.jsonc"), []byte(cfgData), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Make sure Exists checks find this manifest
+	manifestJSON := `{"label":"test-opencode","createdAt":"2026-07-10T00:00:00Z","present":{"opencode.jsonc":true}}`
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(manifestJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	model, effort := s.ProfileModelEffort(tool, "test-opencode")
+	if model != "deepseek-r1" {
+		t.Errorf("model = %q, want deepseek-r1", model)
+	}
+	if effort != "medium" {
+		t.Errorf("effort = %q, want medium", effort)
+	}
+}
+
 func TestSaveWithSpecAndGetSpec(t *testing.T) {
 	dir := t.TempDir()
 	tool, cfg, _ := fakeTool(dir)
@@ -450,15 +489,22 @@ func TestRemoveProfile(t *testing.T) {
 	write(t, cfg, "c")
 
 	s := newStore(t)
+	_ = s.EnsureDefault(tool)
 	_ = s.Save(tool, "temp", "", "")
 	if !s.Exists("fake", "temp") {
 		t.Fatal("profile not saved")
+	}
+	if err := s.SetActiveName("fake", "temp"); err != nil {
+		t.Fatal(err)
 	}
 	if err := s.Remove("fake", "temp"); err != nil {
 		t.Fatal(err)
 	}
 	if s.Exists("fake", "temp") {
 		t.Error("profile still exists after Remove")
+	}
+	if s.Active("fake") != DefaultName {
+		t.Errorf("active = %q, want %q after removing active profile", s.Active("fake"), DefaultName)
 	}
 	if err := s.Remove("fake", DefaultName); err == nil {
 		t.Error("removing default should fail")
@@ -502,8 +548,8 @@ func TestSaveCurrentAccount(t *testing.T) {
 	if !s.Exists("fake", "alice@work.com") {
 		t.Error("account profile not saved")
 	}
-	if s.Active("fake") != "alice@work.com" {
-		t.Errorf("active = %q, want alice@work.com", s.Active("fake"))
+	if s.Active("fake") != "" {
+		t.Errorf("active = %q, want empty (SaveCurrentAccount must not set active)", s.Active("fake"))
 	}
 	m, err := s.LoadManifest("fake", "alice@work.com")
 	if err != nil {
@@ -772,5 +818,27 @@ func TestDuplicateGuards(t *testing.T) {
 	}
 	if err := s.Duplicate("fake", "missing", "x"); err == nil {
 		t.Error("duplicating a missing source should fail")
+	}
+}
+
+func TestSnapshotVerification(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	write(t, cfg, "c1")
+
+	s := newStore(t)
+	// Ensuring default creates a backup / snapshot, which now includes verification.
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatalf("EnsureDefault failed, verification must have failed: %v", err)
+	}
+
+	// Verify that the files in the profile directory exist and match the live config.
+	backedFile := filepath.Join(s.profDir(tool.Name, DefaultName), "config")
+	data, err := os.ReadFile(backedFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "c1" {
+		t.Errorf("backed up content = %q, want %q", string(data), "c1")
 	}
 }
