@@ -513,14 +513,14 @@ func TestRemoveProfile(t *testing.T) {
 
 func TestSanitizeProfileName(t *testing.T) {
 	cases := map[string]string{
-		"alice@work.com":    "alice@work.com",
-		"a b/c":             "a-b-c",
-		"  spaced  ":        "spaced",
-		"user+tag@x.io":     "user-tag@x.io",
-		"acc_123.default-x": "acc_123.default-x",
-		"///":               "",
-		"":                  "",
-		"多 bytes":           "bytes",
+		"alice@example.com":    "alice@example.com",
+		"a b/c":                "a-b-c",
+		"  spaced  ":           "spaced",
+		"user+tag@example.com": "user-tag@example.com",
+		"acc_123.default-x":    "acc_123.default-x",
+		"///":                  "",
+		"":                     "",
+		"多 bytes":              "bytes",
 	}
 	for in, want := range cases {
 		if got := sanitizeProfileName(in); got != want {
@@ -534,7 +534,7 @@ func TestSaveCurrentAccount(t *testing.T) {
 	tool, cfg, _ := fakeTool(dir)
 	write(t, cfg, "live")
 	tool.Describe = func() (tools.Info, error) {
-		return tools.Info{Account: "alice@work.com"}, nil
+		return tools.Info{Account: "alice@example.com"}, nil
 	}
 
 	s := newStore(t)
@@ -542,21 +542,21 @@ func TestSaveCurrentAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if name != "alice@work.com" {
-		t.Errorf("name = %q, want alice@work.com", name)
+	if name != "alice@example.com" {
+		t.Errorf("name = %q, want alice@example.com", name)
 	}
-	if !s.Exists("fake", "alice@work.com") {
+	if !s.Exists("fake", "alice@example.com") {
 		t.Error("account profile not saved")
 	}
 	if s.Active("fake") != "" {
 		t.Errorf("active = %q, want empty (SaveCurrentAccount must not set active)", s.Active("fake"))
 	}
-	m, err := s.LoadManifest("fake", "alice@work.com")
+	m, err := s.LoadManifest("fake", "alice@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Account != "alice@work.com" {
-		t.Errorf("manifest account = %q, want alice@work.com", m.Account)
+	if m.Account != "alice@example.com" {
+		t.Errorf("manifest account = %q, want alice@example.com", m.Account)
 	}
 }
 

@@ -22,14 +22,14 @@ func TestDecodeJWTEmail(t *testing.T) {
 	cases := []struct {
 		name, token, want string
 	}{
-		{"email claim", makeJWT(t, map[string]any{"email": "alice@work.com"}), "alice@work.com"},
+		{"email claim", makeJWT(t, map[string]any{"email": "alice@example.com"}), "alice@example.com"},
 		{"nested openai profile claim", makeJWT(t, map[string]any{
-			"https://api.openai.com/profile": map[string]any{"email": "bob@work.com"},
-		}), "bob@work.com"},
+			"https://api.openai.com/profile": map[string]any{"email": "bob@example.com"},
+		}), "bob@example.com"},
 		{"top-level email wins over nested profile claim", makeJWT(t, map[string]any{
-			"email":                          "top@work.com",
-			"https://api.openai.com/profile": map[string]any{"email": "nested@work.com"},
-		}), "top@work.com"},
+			"email":                          "top@example.com",
+			"https://api.openai.com/profile": map[string]any{"email": "nested@example.com"},
+		}), "top@example.com"},
 		{"no email claim", makeJWT(t, map[string]any{"sub": "123"}), ""},
 		{"empty", "", ""},
 		{"one segment", "abc", ""},
@@ -47,13 +47,13 @@ func TestDecodeJWTEmail(t *testing.T) {
 
 func TestCodexAccountFromIDToken(t *testing.T) {
 	home := sandboxHome(t)
-	idToken := makeJWT(t, map[string]any{"email": "alice@work.com"})
+	idToken := makeJWT(t, map[string]any{"email": "alice@example.com"})
 	writeFile(t, filepath.Join(home, ".codex", "auth.json"),
 		`{"auth_mode":"chatgpt","tokens":{"id_token":"`+idToken+`","account_id":"acc_1"}}`)
 
 	info, _ := Find("codex").Describe()
-	if info.Account != "alice@work.com" {
-		t.Errorf("account = %q, want alice@work.com", info.Account)
+	if info.Account != "alice@example.com" {
+		t.Errorf("account = %q, want alice@example.com", info.Account)
 	}
 }
 
@@ -72,11 +72,11 @@ func TestClaudeAccountFromClaudeJSON(t *testing.T) {
 	home := sandboxHome(t)
 	writeFile(t, filepath.Join(home, ".claude", "settings.json"), `{}`)
 	writeFile(t, filepath.Join(home, ".claude.json"),
-		`{"oauthAccount":{"emailAddress":"bob@personal.com"}}`)
+		`{"oauthAccount":{"emailAddress":"bob@example.com"}}`)
 
 	info, _ := Find("claude").Describe()
-	if info.Account != "bob@personal.com" {
-		t.Errorf("account = %q, want bob@personal.com", info.Account)
+	if info.Account != "bob@example.com" {
+		t.Errorf("account = %q, want bob@example.com", info.Account)
 	}
 }
 
