@@ -242,6 +242,25 @@ func cmdSave(store *profile.Store, args []string) error {
 	return nil
 }
 
+func cmdRefresh(store *profile.Store, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: charon refresh <tool>")
+	}
+	tool, err := requireTool(args[0])
+	if err != nil {
+		return err
+	}
+	active := store.Active(tool.Name)
+	if active == "" {
+		return fmt.Errorf("no active profile for %s", tool.Title)
+	}
+	if err := store.Refresh(tool); err != nil {
+		return err
+	}
+	fmt.Printf("Captured current %s config into profile %q\n", tool.Title, active)
+	return nil
+}
+
 func cmdUndo(store *profile.Store, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: charon undo <tool>")

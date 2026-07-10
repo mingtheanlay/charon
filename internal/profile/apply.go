@@ -22,6 +22,14 @@ func (s *Store) Apply(t *tools.Tool, name string) (backupDir string, err error) 
 	return s.switchTo(t, s.profDir(t.Name, name), "auto-backup before switch to "+name, name)
 }
 
+// Refresh updates the active profile's snapshot with current live config values
+// (e.g., model/effort changed via /model or /effort in the tool). Does nothing
+// if no profile is active.
+func (s *Store) Refresh(t *tools.Tool) error {
+	s.refreshMergerArtifacts(t)
+	return nil
+}
+
 // Undo reverts a tool to its most recent backup (the pre-switch state), snapshotting
 // the current state first so the undo is itself reversible. Returns the restored dir.
 func (s *Store) Undo(t *tools.Tool) (restoredFrom string, err error) {

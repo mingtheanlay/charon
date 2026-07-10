@@ -67,6 +67,8 @@ func run(args []string) error {
 		return cmdPrune(store, args[1:])
 	case "save":
 		return cmdSave(store, args[1:])
+	case "refresh":
+		return cmdRefresh(store, args[1:])
 	case "models":
 		return cmdModels(args[1:])
 	case "add":
@@ -105,6 +107,7 @@ Usage:
   charon ls <tool>           list saved profiles for a tool (--json)
   charon save <tool> [name]  snapshot current live config as a profile
                              (omit name to auto-name after the logged-in account)
+  charon refresh <tool>      capture in-session changes (model, effort) into active profile
   charon models <tool>       list models from an API (--key, --endpoint)
   charon add <tool>          add+activate a profile (--name --key [--endpoint --model])
   charon edit <tool> <p>     change a profile's endpoint/key/model/name
