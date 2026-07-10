@@ -58,6 +58,11 @@ func (s *Store) switchTo(t *tools.Tool, sourceDir, backupLabel, resultingActive 
 		if err := s.setActive(t.Name, resultingActive); err != nil {
 			return backupDir, err
 		}
+		// Refresh the newly-active profile's snapshot to capture any live changes made
+		// during this session (e.g., /model or /effort in OpenCode), so the next time
+		// this profile is applied, it reflects the current state rather than a stale
+		// snapshot. This way, in-session changes don't require an explicit `refresh`.
+		s.refreshMergerArtifacts(t)
 	}
 	_ = s.pruneBackups(t.Name, backupKeep)
 	return backupDir, nil
