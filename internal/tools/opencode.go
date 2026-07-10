@@ -55,6 +55,19 @@ func newOpenCode() *Tool {
 			provider := subMap(cfg, "provider")
 			original := snapshotProviders(provider) // guard: write may only touch "charon"
 
+			// Preserve the previously-registered model list (e.g. from an earlier fetch)
+			// when this call doesn't bring its own — otherwise an edit that doesn't touch
+			// the model field (rename, key rotation, CLI --model) would collapse OpenCode's
+			// /models picker down to just the single current model.
+			var existingModels []string
+			if prev, ok := provider["charon"].(map[string]any); ok {
+				if models, ok := prev["models"].(map[string]any); ok {
+					for id := range models {
+						existingModels = append(existingModels, id)
+					}
+				}
+			}
+
 			options := map[string]any{"baseURL": a.Endpoint}
 			if a.Key != "" {
 				options["apiKey"] = a.Key
@@ -67,9 +80,13 @@ func newOpenCode() *Tool {
 			if a.Model != "" {
 				// Register every model the caller already fetched (e.g. the TUI wizard's
 				// picker list), not just a.Model, so OpenCode's own /models picker can
-				// switch between them without re-adding the profile. Falls back to just
-				// a.Model when the caller has no fetched list (e.g. the CLI --model flag).
+				// switch between them without re-adding the profile. Falls back to the
+				// previously-registered list, then just a.Model, when the caller has no
+				// fetched list (e.g. the CLI --model flag or an edit of another field).
 				ids := a.AllModels
+				if len(ids) == 0 {
+					ids = existingModels
+				}
 				if len(ids) == 0 {
 					ids = []string{a.Model}
 				}

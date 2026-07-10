@@ -75,6 +75,13 @@ func (d charonDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 		_, _ = io.WriteString(w, rule)
 		return
 	}
+	// A row with no description (e.g. "Add new profile…") must render as a single
+	// line even under a two-line delegate — otherwise the selected style's teal
+	// background still paints an empty second line, bleeding color under the text.
+	// d is a value receiver, so this only affects this one row's render call.
+	if it.desc == "" {
+		d.DefaultDelegate.ShowDescription = false
+	}
 	// The already-picked profile keeps a primary-colored title even once the
 	// cursor moves elsewhere, so "what's active" and "what's under the cursor"
 	// stay two distinct, simultaneously visible signals. d is a value receiver,
