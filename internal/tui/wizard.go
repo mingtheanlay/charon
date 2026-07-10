@@ -264,9 +264,9 @@ func (m model) finishAdd(name string) (tea.Model, tea.Cmd) {
 	var err error
 	if m.wiz.edit {
 		verb = "Updated"
-		err = m.store.EditProfile(m.tool, m.wiz.origName, name, spec)
+		err = m.store.EditProfile(m.tool, m.wiz.origName, name, spec, m.allModels...)
 	} else {
-		err = m.store.AddProfile(m.tool, name, spec)
+		err = m.store.AddProfile(m.tool, name, spec, m.allModels...)
 	}
 	if err != nil {
 		m.setStatus(statusErr, err.Error())

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
 
@@ -118,8 +119,9 @@ func (f *FileArtifact) Remove() error {
 type MergedFileArtifact struct {
 	FileArtifact
 	ownedKeys []string
-	modelKey  string // top-level key holding the model id, "" if this file has none
-	effortKey string // top-level key holding the reasoning-effort level, "" if none
+	modelKey  string   // top-level key holding the model id, "" if this file has none
+	effortKey string   // top-level key holding the reasoning-effort level, "" if none
+	agentKeys []string // top-level keys holding a map of {model, reasoningEffort} to fall back to
 	decode    func([]byte) (map[string]any, error)
 	encode    func(map[string]any) ([]byte, error)
 }
@@ -197,8 +199,17 @@ func (m *MergedFileArtifact) WithDisplay(modelKey, effortKey string) *MergedFile
 	return m
 }
 
+// WithAgentFallback adds top-level keys holding a map of agent name -> {model,
+// reasoningEffort} (e.g. OpenCode's "agent"/"agents") that Peek falls back to when
+// the top-level model/effort keys are unset. Returns m for chaining.
+func (m *MergedFileArtifact) WithAgentFallback(keys ...string) *MergedFileArtifact {
+	m.agentKeys = keys
+	return m
+}
+
 // Peek decodes data (a stored snapshot's bytes) and returns its model/effort values,
-// per the keys set via WithDisplay. Each is "" if untracked, unset, or unparseable.
+// per the keys set via WithDisplay, falling back to WithAgentFallback's agent maps.
+// Each is "" if untracked, unset, or unparseable.
 func (m *MergedFileArtifact) Peek(data []byte) (model, effort string) {
 	if m.modelKey == "" && m.effortKey == "" {
 		return "", ""
@@ -209,9 +220,28 @@ func (m *MergedFileArtifact) Peek(data []byte) (model, effort string) {
 	}
 	if m.modelKey != "" {
 		model, _ = decoded[m.modelKey].(string)
+		model = strings.TrimPrefix(model, "charon/") // OpenCode namespaces charon-registered models
 	}
 	if m.effortKey != "" {
 		effort, _ = decoded[m.effortKey].(string)
+	}
+	if model == "" || effort == "" {
+		for _, key := range m.agentKeys {
+			agents, _ := decoded[key].(map[string]any)
+			for _, v := range agents {
+				a, _ := v.(map[string]any)
+				if model == "" {
+					if s, _ := a["model"].(string); s != "" {
+						model = strings.TrimPrefix(s, "charon/")
+					}
+				}
+				if effort == "" {
+					if s, _ := a["reasoningEffort"].(string); s != "" {
+						effort = s
+					}
+				}
+			}
+		}
 	}
 	return model, effort
 }

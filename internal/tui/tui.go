@@ -316,6 +316,19 @@ func (m *model) loadProfiles(selectName string) {
 // charon captured rather than created itself.
 func (m *model) profileDetail(name string) string {
 	model, effort := m.store.ProfileModelEffort(m.tool, name)
+	// The active profile's on-disk snapshot only resyncs when you switch away (see
+	// refreshMergerArtifacts) — an external /model change while it's active leaves the
+	// snapshot stale. Read live config instead so the list matches what's actually set.
+	if name == m.store.Active(m.tool.Name) && m.tool.Describe != nil {
+		if info, err := m.tool.Describe(); err == nil {
+			if info.Model != "" {
+				model = info.Model
+			}
+			if info.Effort != "" {
+				effort = info.Effort
+			}
+		}
+	}
 	spec, hasSpec := m.store.GetSpec(m.tool.Name, name)
 	if hasSpec && model == "" {
 		model = spec.Model
@@ -445,8 +458,19 @@ func (m model) onEditKey() (tea.Model, tea.Cmd) {
 		m.setStatus(statusInfo, "this login backup has no editable settings")
 		return m, nil
 	}
+	// spec.Model is frozen at Add-time; prefer whatever the list just showed (the
+	// captured snapshot, or live config for the active profile) so edit matches it.
+	model := sp.Model
+	if snapModel, _ := m.store.ProfileModelEffort(m.tool, it.value); snapModel != "" {
+		model = snapModel
+	}
+	if it.value == m.store.Active(m.tool.Name) && m.tool.Describe != nil {
+		if info, err := m.tool.Describe(); err == nil && info.Model != "" {
+			model = info.Model
+		}
+	}
 	m.wiz = wizard{name: it.value, origName: it.value, edit: true,
-		endpoint: sp.Endpoint, key: sp.Key, model: sp.Model}
+		endpoint: sp.Endpoint, key: sp.Key, model: model}
 	m.editField = "" // fresh edit starts on the first field
 	m.view = viewEditForm
 	m.clearStatus()

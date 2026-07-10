@@ -87,7 +87,10 @@ func (s *Store) SaveCurrentAccount(t *tools.Tool) (string, error) {
 
 // AddProfile applies spec via ApplyAuth, snapshots it as the named profile, and marks it
 // active. Shared by the CLI `add` command and the interactive add/edit flow so they can't drift.
-func (s *Store) AddProfile(t *tools.Tool, name string, spec Spec) error {
+// allModels is an optional full model list (e.g. from the TUI wizard's picker fetch) embedded
+// into the tool's own config so its native model picker can offer more than just spec.Model;
+// it is never persisted into the profile's Spec.
+func (s *Store) AddProfile(t *tools.Tool, name string, spec Spec, allModels ...string) error {
 	if t.ApplyAuth == nil {
 		return fmt.Errorf("%s does not support add", t.Title)
 	}
@@ -103,7 +106,7 @@ func (s *Store) AddProfile(t *tools.Tool, name string, spec Spec) error {
 			return fmt.Errorf("backup failed, aborting: %w", err)
 		}
 	}
-	if err := t.ApplyAuth(tools.AuthSpec{Endpoint: spec.Endpoint, Key: spec.Key, Model: spec.Model}); err != nil {
+	if err := t.ApplyAuth(tools.AuthSpec{Endpoint: spec.Endpoint, Key: spec.Key, Model: spec.Model, AllModels: allModels}); err != nil {
 		return err
 	}
 	if err := s.SaveWithSpec(t, name, spec); err != nil {
@@ -123,14 +126,14 @@ func (s *Store) AddProfile(t *tools.Tool, name string, spec Spec) error {
 // config and active pointer are restored to what they were, so an edit never
 // silently switches which profile is in effect. Shared by the CLI `edit` command
 // and the TUI edit form so this can't drift between them.
-func (s *Store) EditProfile(t *tools.Tool, oldName, newName string, spec Spec) error {
+func (s *Store) EditProfile(t *tools.Tool, oldName, newName string, spec Spec, allModels ...string) error {
 	if newName == "" {
 		newName = oldName
 	}
 	prevActive := s.Active(t.Name)
 	wasActive := prevActive == oldName
 
-	if err := s.AddProfile(t, newName, spec); err != nil {
+	if err := s.AddProfile(t, newName, spec, allModels...); err != nil {
 		return err
 	}
 	if oldName != newName {

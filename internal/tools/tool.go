@@ -28,9 +28,10 @@ func (i Info) withDefaults(endpoint string) Info {
 
 // AuthSpec is a new endpoint + API key + model to write into a tool's config.
 type AuthSpec struct {
-	Endpoint string
-	Key      string
-	Model    string
+	Endpoint  string
+	Key       string
+	Model     string
+	AllModels []string // full fetched model list (e.g. TUI wizard's picker results); "" entries not included
 }
 
 // Tool describes one AI CLI's auth surface and how to summarize/reconfigure it.

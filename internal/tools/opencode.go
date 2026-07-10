@@ -38,7 +38,8 @@ func newOpenCode() *Tool {
 			// The config holds provider options.apiKey, so keep it private. Other top-level
 			// settings (e.g. theme) are CLI preferences, not per-profile auth — preserved live.
 			artifact.NewMergedJSONFile(filepath.Base(configPath), configPath, 0o600, "provider", "model", "small_model", "reasoningEffort", "agent", "agents").
-				WithDisplay("model", "reasoningEffort"),
+				WithDisplay("model", "reasoningEffort").
+				WithAgentFallback("agent", "agents"),
 			artifact.NewRotatingFile("auth.json", authPath, 0o600), // OAuth logins (e.g. github-copilot); OpenCode refreshes them in place
 		},
 		ApplyAuth: func(a AuthSpec) error {
@@ -64,7 +65,19 @@ func newOpenCode() *Tool {
 				"options": options,
 			}
 			if a.Model != "" {
-				entry["models"] = map[string]any{a.Model: map[string]any{"name": a.Model}}
+				// Register every model the caller already fetched (e.g. the TUI wizard's
+				// picker list), not just a.Model, so OpenCode's own /models picker can
+				// switch between them without re-adding the profile. Falls back to just
+				// a.Model when the caller has no fetched list (e.g. the CLI --model flag).
+				ids := a.AllModels
+				if len(ids) == 0 {
+					ids = []string{a.Model}
+				}
+				modelMap := make(map[string]any, len(ids))
+				for _, id := range ids {
+					modelMap[id] = map[string]any{"name": id}
+				}
+				entry["models"] = modelMap
 				cfg["model"] = "charon/" + a.Model
 			}
 			provider["charon"] = entry

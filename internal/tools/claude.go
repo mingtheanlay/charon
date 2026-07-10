@@ -39,6 +39,7 @@ func newClaude() *Tool {
 			delete(env, "ANTHROPIC_AUTH_TOKEN")
 			delete(env, "ANTHROPIC_BASE_URL")
 			delete(env, "ANTHROPIC_MODEL")
+			delete(env, "ANTHROPIC_CUSTOM_MODEL_OPTION")
 
 			custom := a.Endpoint != "" && !strings.Contains(a.Endpoint, "api.anthropic.com")
 			if custom {
@@ -50,6 +51,10 @@ func newClaude() *Tool {
 				delete(s, "model")
 				if a.Model != "" {
 					env["ANTHROPIC_MODEL"] = a.Model
+					// Gateway model discovery only surfaces ids prefixed "claude"/"anthropic" in
+					// /model, which most gateway model ids aren't. ANTHROPIC_CUSTOM_MODEL_OPTION
+					// adds this one model to the picker regardless of its id shape.
+					env["ANTHROPIC_CUSTOM_MODEL_OPTION"] = a.Model
 				}
 			} else {
 				// Anthropic's own API uses x-api-key. Leave ANTHROPIC_BASE_URL unset: pointing it
