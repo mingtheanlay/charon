@@ -631,11 +631,8 @@ func (m model) onEnter() (tea.Model, tea.Cmd) {
 		}
 		if m.fromForm {
 			m.fromForm = false
-			m.editField = fieldModel // land back on the Model row
-			m.view = viewEditForm
-			m.setStatus(statusInfo, "model set to "+m.wiz.model)
-			m.loadEditForm()
-			return m, nil
+			m.editField = ""
+			return m.finishAdd(m.wiz.name) // save immediately — no waiting on esc
 		}
 		if m.wiz.edit {
 			return m.finishAdd(m.wiz.name) // editing keeps the existing name
