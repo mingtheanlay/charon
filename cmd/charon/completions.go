@@ -10,7 +10,7 @@ _charon() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     cword=$COMP_CWORD
     cmds="status ls save models add edit rename cp switch use restore undo prune rm completion version help"
-    tools="codex claude opencode"
+    tools="codex claude opencode pi"
 
     if [ "$cword" -eq 1 ]; then
         COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )
@@ -46,7 +46,7 @@ const zshCompletion = `#compdef charon
 _charon() {
     local -a cmds tools
     cmds=(status ls save models add edit rename cp switch use restore undo prune rm completion version help)
-    tools=(codex claude opencode)
+    tools=(codex claude opencode pi)
 
     if (( CURRENT == 2 )); then
         compadd -- $cmds
@@ -104,6 +104,6 @@ end
 
 complete -c charon -f
 complete -c charon -n '__fish_use_subcommand' -a 'status ls save models add edit rename cp switch use restore undo prune rm completion version help'
-complete -c charon -n '__charon_needs_tool' -a 'codex claude opencode'
+complete -c charon -n '__charon_needs_tool' -a 'codex claude opencode pi'
 complete -c charon -n '__charon_needs_profile' -a '(__charon_profiles)'
 `

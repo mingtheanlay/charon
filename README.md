@@ -11,11 +11,11 @@
   <a href="https://github.com/mingtheanlay/charon/issues"><img src="https://img.shields.io/github/issues/mingtheanlay/charon?style=flat-square" alt="Open Issues"></a>
 </p>
 
-Charon is a tiny Go CLI that detects the **Codex**, **Claude Code**, and
-**OpenCode** CLIs and switches each one's **endpoint + credentials** between
-named profiles. Every profile is a full snapshot of that tool's auth surface, so
-it works for both API-key logins and OAuth/ChatGPT sessions — and switching away
-and back is always clean and reversible.
+Charon is a tiny Go CLI that detects the **Codex**, **Claude Code**,
+**OpenCode**, and **Pi** CLIs and switches each one's **endpoint + credentials**
+between named profiles. Every profile is a full snapshot of that tool's auth
+surface, so it works for both API-key logins and OAuth/ChatGPT sessions — and
+switching away and back is always clean and reversible.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/mingtheanlay/charon/main/assets/screenshot.png" alt="Charon interactive menu" width="80%">
@@ -23,8 +23,8 @@ and back is always clean and reversible.
 
 ## Features
 
-- **One command, three tools.** Manage Codex, Claude Code, and OpenCode from a
-  single interactive menu or a scriptable CLI.
+- **One command, four tools.** Manage Codex, Claude Code, OpenCode, and Pi from
+  a single interactive menu or a scriptable CLI.
 - **Named profiles.** Snapshot each tool's full auth surface and hop between
   endpoints/keys instantly.
 - **Model discovery.** Add a profile from just an endpoint + key; Charon fetches
@@ -41,6 +41,7 @@ and back is always clean and reversible.
 | **Codex** | `~/.codex/config.toml` (`model_provider` → `base_url`) | `~/.codex/auth.json` |
 | **Claude Code** | `~/.claude/settings.json` (`env.ANTHROPIC_BASE_URL`) | `settings.json` env key **or** macOS Keychain `Claude Code-credentials` |
 | **OpenCode** | `~/.config/opencode/opencode.json` (`provider.*.options.baseURL`) | `~/.local/share/opencode/auth.json` |
+| **Pi** | `~/.pi/agent/extensions/charon.ts` (`pi.registerProvider("charon", ...)`) | `~/.pi/agent/auth.json` |
 
 ## Supported platforms
 
@@ -206,7 +207,8 @@ charon add    codex --name openrouter --endpoint https://openrouter.ai/api/v1 \
 
 Each tool gets a dedicated `charon` provider entry written into its own config
 format (Codex `[model_providers.charon]`, Claude `env.ANTHROPIC_*`, OpenCode an
-`@ai-sdk/openai-compatible` provider), so switching away and back is clean.
+`@ai-sdk/openai-compatible` provider, Pi a `pi.registerProvider("charon", ...)`
+extension), so switching away and back is clean.
 
 A typical flow: log into a tool normally, `charon save codex work-key`; log into a
 different endpoint/key, `charon save codex proxy`; then hop between them with
@@ -237,7 +239,7 @@ version may push secrets back into the Keychain instead.
 ```
 cmd/charon/          entrypoint + subcommands
 internal/artifact/   snapshot/restore primitives (Artifact interface + implementations)
-internal/tools/      per-tool adapters (codex, claude, opencode)
+internal/tools/      per-tool adapters (codex, claude, opencode, pi)
 internal/profile/    snapshot store (split by concern: snapshot, apply, backup, manage)
 internal/tui/        bubbletea interactive menu
 internal/secret/     masking + macOS keychain access

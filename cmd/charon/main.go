@@ -1,5 +1,5 @@
-// Command charon detects the Codex, Claude Code and OpenCode CLIs and switches
-// their endpoint + credentials between saved profiles.
+// Command charon detects the Codex, Claude Code, OpenCode, and Pi CLIs and
+// switches their endpoint + credentials between saved profiles.
 package main
 
 import (
@@ -122,6 +122,6 @@ Usage:
   charon update              upgrade charon to the latest version
   charon uninstall           remove the installed charon binary
 
-Tools: codex, claude, opencode
+Tools: codex, claude, opencode, pi
 `)
 }

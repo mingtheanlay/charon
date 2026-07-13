@@ -515,9 +515,88 @@ func TestEnsureOnlyCharonChanged(t *testing.T) {
 
 func TestNotDetectedInEmptyHome(t *testing.T) {
 	sandboxHome(t)
-	for _, name := range []string{"codex", "opencode"} {
+	for _, name := range []string{"codex", "opencode", "pi"} {
 		if Find(name).Detected() {
 			t.Errorf("%s should not be detected in empty HOME", name)
 		}
+	}
+}
+
+func TestPiDescribeAndApply(t *testing.T) {
+	home := sandboxHome(t)
+	dir := filepath.Join(home, ".pi", "agent")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	c := Find("pi")
+	if !c.Detected() {
+		t.Fatal("pi should be detected via ~/.pi/agent")
+	}
+	if err := c.ApplyAuth(AuthSpec{
+		Endpoint:  "https://openrouter.ai/api/v1",
+		Key:       "sk-or-123456789",
+		Model:     "x/y",
+		AllModels: []string{"x/y", "x/z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := c.Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Model != "x/y" {
+		t.Errorf("Describe model = %q, want %q", info.Model, "x/y")
+	}
+	if info.Endpoint != "https://openrouter.ai/api/v1" || info.Secret != "sk-or-123456789" || info.AuthMode != "api" {
+		t.Errorf("Describe info = %+v, want endpoint/key/api set", info)
+	}
+
+	extensionPath := filepath.Join(dir, "extensions", "charon.ts")
+	data, err := os.ReadFile(extensionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, ok := piParseExtension(data)
+	if !ok {
+		t.Fatal("could not parse charon.ts extension back out")
+	}
+	if len(cfg.Models) != 2 {
+		t.Errorf("models = %v, want 2 entries", cfg.Models)
+	}
+
+	settingsPath := filepath.Join(dir, "settings.json")
+	var s map[string]any
+	sd, _ := os.ReadFile(settingsPath)
+	_ = json.Unmarshal(sd, &s)
+	if s["defaultProvider"] != "charon" || s["defaultModel"] != "x/y" {
+		t.Errorf("settings.json = %v, want defaultProvider/defaultModel set to charon/x/y", s)
+	}
+
+	// A rename/key-rotation call without AllModels must preserve the previously
+	// registered model list rather than collapsing the /model picker to one entry.
+	if err := c.ApplyAuth(AuthSpec{Endpoint: "https://openrouter.ai/api/v1", Key: "sk-or-999", Model: "x/y"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(extensionPath)
+	cfg, _ = piParseExtension(data)
+	if len(cfg.Models) != 2 {
+		t.Errorf("models after re-apply = %v, want preserved 2 entries", cfg.Models)
+	}
+
+	// A live-set defaultThinkingLevel (a CLI preference, e.g. via pi's /settings)
+	// must survive being merged back in by the profile store, matching Codex/OpenCode.
+	s["defaultThinkingLevel"] = "high"
+	sd, _ = json.Marshal(s)
+	if err := os.WriteFile(settingsPath, sd, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err = c.Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Effort != "high" {
+		t.Errorf("Describe effort = %q, want %q", info.Effort, "high")
 	}
 }

@@ -48,7 +48,7 @@ type Tool struct {
 
 // All returns the supported tools in a stable display order.
 func All() []*Tool {
-	return []*Tool{newCodex(), newClaude(), newOpenCode()}
+	return []*Tool{newCodex(), newClaude(), newOpenCode(), newPi()}
 }
 
 // ResolveEndpoint returns ep, or DefaultEndpoint when ep is empty.

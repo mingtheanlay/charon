@@ -1,13 +1,14 @@
 # AGENTS.md
 
 Guidance for AI coding agents (and humans) working in this repository.
-`charon` is a small Go CLI that detects the Codex, Claude Code, and OpenCode CLIs
-and switches each one's **endpoint + credentials** between named profiles.
+`charon` is a small Go CLI that detects the Codex, Claude Code, OpenCode, and Pi
+CLIs and switches each one's **endpoint + credentials** between named profiles.
 
 ## Golden rule: this tool edits real user credentials
 
 `charon` reads and writes live config for other tools (`~/.codex`, `~/.claude`,
-`~/.config/opencode`, `~/.local/share/opencode`) and the macOS Keychain. It also
+`~/.config/opencode`, `~/.local/share/opencode`, `~/.pi/agent`) and the macOS
+Keychain. It also
 **reads** `~/.claude.json` (`oauthAccount.emailAddress`) solely to name an
 account-backup profile — that file is never written or snapshotted.
 
@@ -53,7 +54,7 @@ internal/tools/   per-tool adapters
   tool.go           Tool struct, AuthSpec, registry (All/Find)
   providers.go      guards for the shared "charon" provider entry (codex/opencode)
   edit.go           JSON/TOML load-merge-write helpers (preserve unknown keys)
-  codex.go / claude.go / opencode.go   one file per tool
+  codex.go / claude.go / opencode.go / pi.go   one file per tool
 internal/profile/ snapshot store, split by concern:
   store.go (layout/config/name validation) · snapshot.go (Save/Add/Edit/EnsureDefault)
   apply.go (Apply/Undo/Drift/refresh) · backup.go (backups + prune) · manage.go (rm/mv/cp)
