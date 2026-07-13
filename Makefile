@@ -10,10 +10,10 @@ PREFIX  ?= $(HOME)/.local
 .PHONY: build install uninstall test cover lint fmt tidy clean run
 
 build: ## Build ./charon for the current platform
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
 
 install: ## Build and install to $(PREFIX)/bin
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
 	install -d "$(PREFIX)/bin"
 	install -m 0755 $(BINARY) "$(PREFIX)/bin/$(BINARY)"
 	@echo "Installed $(BINARY) $(VERSION) -> $(PREFIX)/bin/$(BINARY)"

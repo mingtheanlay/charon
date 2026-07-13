@@ -74,6 +74,19 @@ func (s *Store) toolDir(tool string) string    { return filepath.Join(s.Root, "p
 func (s *Store) profDir(tool, n string) string { return filepath.Join(s.toolDir(tool), n) }
 func (s *Store) configPath() string            { return filepath.Join(s.Root, "config.json") }
 
+// warn appends a timestamped line to charon.log for a failure in a best-effort
+// operation (e.g. refreshing a profile snapshot before a switch) that is deliberately
+// not surfaced as a hard error — so it's still diagnosable instead of vanishing
+// silently. Never returns an error: logging itself is best-effort.
+func (s *Store) warn(context string, err error) {
+	f, oerr := os.OpenFile(filepath.Join(s.Root, "charon.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if oerr != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s\t%s: %v\n", time.Now().Format(time.RFC3339), context, err)
+}
+
 func (s *Store) readConfig() config {
 	var c config
 	if data, err := os.ReadFile(s.configPath()); err == nil {

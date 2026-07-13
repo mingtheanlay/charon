@@ -18,6 +18,8 @@ builds:
     binary: charon
     env:
       - CGO_ENABLED=0
+    flags:
+      - -trimpath
     goos:
       - darwin
       - linux

@@ -64,7 +64,9 @@ func (s *Store) switchTo(t *tools.Tool, sourceDir, backupLabel, resultingActive 
 		// snapshot. This way, in-session changes don't require an explicit `refresh`.
 		s.refreshMergerArtifacts(t)
 	}
-	_ = s.pruneBackups(t.Name, backupKeep)
+	if perr := s.pruneBackups(t.Name, backupKeep); perr != nil {
+		s.warn("switchTo: pruneBackups", perr)
+	}
 	return backupDir, nil
 }
 
@@ -137,11 +139,15 @@ func (s *Store) refreshKeychainArtifacts(t *tools.Tool) {
 			changed = true
 		}
 		if exists {
-			_ = artifact.AtomicWrite(filepath.Join(dir, a.ID()), data, 0o600)
+			if werr := artifact.AtomicWrite(filepath.Join(dir, a.ID()), data, 0o600); werr != nil {
+				s.warn("refreshKeychainArtifacts: write "+a.ID(), werr)
+			}
 		}
 	}
 	if changed {
-		_ = writeManifest(dir, m)
+		if werr := writeManifest(dir, m); werr != nil {
+			s.warn("refreshKeychainArtifacts: write manifest", werr)
+		}
 	}
 }
 
@@ -177,7 +183,9 @@ func (s *Store) refreshMergerArtifacts(t *tools.Tool) {
 		if err != nil {
 			continue
 		}
-		_ = artifact.AtomicWrite(storedPath, refreshed, 0o600)
+		if werr := artifact.AtomicWrite(storedPath, refreshed, 0o600); werr != nil {
+			s.warn("refreshMergerArtifacts: write "+a.ID(), werr)
+		}
 	}
 }
 

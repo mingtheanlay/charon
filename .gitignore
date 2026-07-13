@@ -1,5 +1,7 @@
 # Build artifacts
 /charon
+/charon-bin
+*-bin
 /dist/
 /completions/
 *.test

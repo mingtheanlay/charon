@@ -84,7 +84,9 @@ func (s *Store) Duplicate(tool, src, dst string) error {
 func (s *Store) refreshMirroredLabel(tool, src, dst string) {
 	if m, err := s.LoadManifest(tool, dst); err == nil && (m.Label == src || m.Label == "") {
 		m.Label = dst
-		_ = writeManifest(s.profDir(tool, dst), m)
+		if werr := writeManifest(s.profDir(tool, dst), m); werr != nil {
+			s.warn("refreshMirroredLabel: write manifest", werr)
+		}
 	}
 }
 
