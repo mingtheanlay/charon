@@ -69,7 +69,7 @@ curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/insta
 ### Homebrew (macOS & Linux)
 
 ```sh
-brew install mtty80/tap/charon
+brew install --cask mtty80/tap/charon
 ```
 
 <details>

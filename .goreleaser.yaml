@@ -1,5 +1,5 @@
 # GoReleaser config for charon — builds cross-platform binaries, cuts a GitHub
-# release, and publishes a Homebrew formula to your tap.
+# release, and publishes a Homebrew cask to your tap.
 # Docs: https://goreleaser.com
 version: 2
 
@@ -41,8 +41,9 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-# Publishes/updates the Homebrew formula automatically on each release.
-brews:
+# Publishes/updates the Homebrew cask automatically on each release.
+# `brews` (Formula-based) is deprecated by GoReleaser in favor of `homebrew_casks`.
+homebrew_casks:
   - name: charon
     repository:
       owner: mtty80
@@ -50,19 +51,23 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/mingtheanlay/charon"
     description: "Switch Codex, Claude Code and OpenCode between endpoint + credential profiles"
-    license: "MIT"
-    # Shown by `brew info charon` — point users at the no-Homebrew curl installer.
+    # Shown by `brew info --cask charon` — point users at the no-Homebrew curl installer.
     caveats: |
       Not using Homebrew? Install with one line on Linux or macOS:
         curl -fsSL https://github.com/mingtheanlay/charon/releases/latest/download/install.sh | sh
-    # Install the bundled shell completions alongside the binary.
-    extra_install: |
-      bash_completion.install "completions/charon.bash" => "charon"
-      zsh_completion.install "completions/charon.zsh" => "_charon"
-      fish_completion.install "completions/charon.fish"
-    # Sanity check that the installed binary runs.
-    test: |
-      system "#{bin}/charon", "--help"
+    completions:
+      bash: completions/charon.bash
+      zsh: completions/charon.zsh
+      fish: completions/charon.fish
+    # The binary is unsigned/unnotarized, so macOS quarantines it on download
+    # and refuses to run it ("charon is damaged") unless the quarantine
+    # attribute is stripped after install.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/charon"]
+          end
 
 release:
   github:
