@@ -80,7 +80,7 @@ func (d charonDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	// background still paints an empty second line, bleeding color under the text.
 	// d is a value receiver, so this only affects this one row's render call.
 	if it.desc == "" {
-		d.DefaultDelegate.ShowDescription = false
+		d.ShowDescription = false
 	}
 	// The already-picked profile keeps a primary-colored title even once the
 	// cursor moves elsewhere, so "what's active" and "what's under the cursor"

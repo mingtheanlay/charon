@@ -83,7 +83,7 @@ func (s *Store) warn(context string, err error) {
 	if oerr != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fmt.Fprintf(f, "%s\t%s: %v\n", time.Now().Format(time.RFC3339), context, err)
 }
 
