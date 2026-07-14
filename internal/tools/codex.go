@@ -3,7 +3,6 @@ package tools
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -78,11 +77,7 @@ func newCodex() *Tool {
 			return writeTOMLMap(configPath, cfg, 0o600)
 		},
 		Detected: func() bool {
-			if _, err := exec.LookPath("codex"); err == nil {
-				return true
-			}
-			_, err := os.Stat(dir)
-			return err == nil
+			return detected("codex", dir)
 		},
 		Describe: func() (Info, error) {
 			var info Info

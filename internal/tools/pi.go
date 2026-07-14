@@ -195,8 +195,7 @@ func newPi() *Tool {
 			return writeJSONMap(settingsPath, s, 0o600)
 		},
 		Detected: func() bool {
-			_, err := os.Stat(dir)
-			return err == nil
+			return detected("pi", dir)
 		},
 		Describe: func() (Info, error) {
 			var info Info

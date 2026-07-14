@@ -76,12 +76,30 @@ func TestCodexDescribeAndApply(t *testing.T) {
 	}
 }
 
-func TestCodexDetectedWithoutAuth(t *testing.T) {
+func TestDetectedWithoutAuth(t *testing.T) {
 	home := sandboxHome(t)
-	writeFile(t, filepath.Join(home, ".codex", "config.toml"), "model = \"gpt-5.5\"\n")
+	t.Setenv("PATH", t.TempDir())
 
-	if !Find("codex").Detected() {
-		t.Fatal("codex should be detected via ~/.codex without auth.json")
+	for _, tc := range []struct {
+		tool string
+		dir  string
+	}{
+		{tool: "codex", dir: filepath.Join(home, ".codex")},
+		{tool: "claude", dir: filepath.Join(home, ".claude")},
+		{tool: "opencode", dir: filepath.Join(home, ".config", "opencode")},
+		{tool: "pi", dir: filepath.Join(home, ".pi", "agent")},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			if err := os.MkdirAll(tc.dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if !Find(tc.tool).Detected() {
+				t.Errorf("%s should be detected via config directory without auth", tc.tool)
+			}
+			if err := os.RemoveAll(tc.dir); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
