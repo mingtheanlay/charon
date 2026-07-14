@@ -316,11 +316,13 @@ func (m *model) loadProfiles(selectName string) {
 // charon captured rather than created itself.
 func (m *model) profileDetail(name string) string {
 	model, effort := m.store.ProfileModelEffort(m.tool, name)
+	liveEndpoint := ""
 	// The active profile's on-disk snapshot only resyncs when you switch away (see
 	// refreshMergerArtifacts) — an external /model change while it's active leaves the
 	// snapshot stale. Read live config instead so the list matches what's actually set.
 	if name == m.store.Active(m.tool.Name) && m.tool.Describe != nil {
 		if info, err := m.tool.Describe(); err == nil {
+			liveEndpoint = info.Endpoint
 			if info.Model != "" {
 				model = info.Model
 			}
@@ -340,7 +342,9 @@ func (m *model) profileDetail(name string) string {
 		return "captured config"
 	}
 	url := "default endpoint"
-	if hasSpec {
+	if liveEndpoint != "" {
+		url = liveEndpoint
+	} else if hasSpec {
 		if u := m.tool.ResolveEndpoint(spec.Endpoint); u != "" {
 			url = u
 		}
