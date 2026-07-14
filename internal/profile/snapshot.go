@@ -183,6 +183,9 @@ func (s *Store) GetSpec(tool, name string) (Spec, bool) {
 // revert always works. A custom provider remains protected from deletion and rename,
 // but records an editable spec. It writes the reserved name directly — Save rejects it.
 func (s *Store) EnsureDefault(t *tools.Tool) error {
+	if s.Exists(t.Name, DefaultName) {
+		return nil
+	}
 	if t.Detected == nil || !t.Detected() {
 		return nil
 	}
@@ -199,20 +202,6 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 			spec = &Spec{Endpoint: info.Endpoint, Key: info.Secret, Model: info.Model}
 			label = "Default (auto-captured custom provider)"
 		}
-	}
-	if s.Exists(t.Name, DefaultName) {
-		// Upgrade defaults captured by older versions without replacing snapshot files.
-		if spec != nil {
-			m, err := s.LoadManifest(t.Name, DefaultName)
-			if err != nil {
-				return err
-			}
-			if m.Spec == nil {
-				m.Spec, m.Label = spec, label
-				return writeManifest(s.profDir(t.Name, DefaultName), m)
-			}
-		}
-		return nil
 	}
 	if err := snapshot(t, s.profDir(t.Name, DefaultName), label, "", "", "", spec); err != nil {
 		return err

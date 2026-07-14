@@ -169,6 +169,30 @@ func TestEnsureDefaultMakesThirdPartyProviderEditable(t *testing.T) {
 	}
 }
 
+func TestEnsureDefaultDoesNotReclassifyExistingOfficialDefault(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	endpoint := "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: endpoint}, nil }
+	write(t, cfg, "official")
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	endpoint = "https://relay.example.com/v1"
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if _, editable := s.GetSpec(tool.Name, DefaultName); editable {
+		t.Error("existing official default was reclassified from current custom provider")
+	}
+	if got, _ := os.ReadFile(filepath.Join(s.profDir(tool.Name, DefaultName), "config")); string(got) != "official" {
+		t.Errorf("default snapshot = %q, want official", got)
+	}
+}
+
 func TestSaveSwitchRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	tool, cfg, auth := fakeTool(dir)
