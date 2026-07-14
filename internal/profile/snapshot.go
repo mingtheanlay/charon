@@ -179,21 +179,18 @@ func (s *Store) GetSpec(tool, name string) (Spec, bool) {
 	return *m.Spec, true
 }
 
-// EnsureDefault captures the "default" profile the first time a tool is seen, so
-// revert always works. A custom provider remains protected from deletion and rename,
-// but records an editable spec. It writes the reserved name directly — Save rejects it.
+// EnsureDefault captures a clean official default the first time a tool is seen.
+// A live custom provider is imported as a normal editable profile and left active.
 func (s *Store) EnsureDefault(t *tools.Tool) error {
 	if s.Exists(t.Name, DefaultName) {
-		if _, custom := s.GetSpec(t.Name, DefaultName); custom && t.OfficialOAuth != nil && t.OfficialOAuth() && t.UseOfficialAuth != nil {
-			return s.promoteOfficialDefault(t)
+		if _, custom := s.GetSpec(t.Name, DefaultName); custom && t.UseOfficialAuth != nil {
+			return s.splitCustomDefault(t)
 		}
 		return nil
 	}
 	if t.Detected == nil || !t.Detected() {
 		return nil
 	}
-	var spec *Spec
-	label := "Default (auto-captured)"
 	if t.Describe != nil {
 		info, err := t.Describe()
 		if err != nil {
@@ -201,12 +198,11 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 		}
 		endpoint := strings.TrimRight(info.Endpoint, "/")
 		defaultEndpoint := strings.TrimRight(t.DefaultEndpoint, "/")
-		if endpoint != "" && !strings.Contains(endpoint, "(default)") && endpoint != defaultEndpoint {
-			spec = &Spec{Endpoint: info.Endpoint, Key: info.Secret, Model: info.Model}
-			label = "Default (auto-captured custom provider)"
+		if endpoint != "" && !strings.Contains(endpoint, "(default)") && endpoint != defaultEndpoint && t.UseOfficialAuth != nil {
+			return s.importCustomAndCreateDefault(t, Spec{Endpoint: info.Endpoint, Key: info.Secret, Model: info.Model})
 		}
 	}
-	if err := snapshot(t, s.profDir(t.Name, DefaultName), label, "", "", "", spec); err != nil {
+	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official provider)", "", "", "", nil); err != nil {
 		return err
 	}
 	if s.Active(t.Name) == "" {
@@ -215,31 +211,58 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 	return nil
 }
 
-// promoteOfficialDefault preserves an auto-captured custom default as an editable
-// imported profile, then clears custom routing and captures official OAuth as default.
-func (s *Store) promoteOfficialDefault(t *tools.Tool) error {
-	if _, err := s.backup(t, "auto-backup before activating official OAuth"); err != nil {
-		return fmt.Errorf("backup failed, aborting: %w", err)
-	}
+func (s *Store) nextImportedName(tool string) string {
 	name := "imported"
-	for i := 2; s.Exists(t.Name, name); i++ {
+	for i := 2; s.Exists(tool, name); i++ {
 		name = fmt.Sprintf("imported-%d", i)
 	}
+	return name
+}
+
+// importCustomAndCreateDefault temporarily clears custom routing to snapshot a
+// clean official default, then restores the imported custom profile as active.
+func (s *Store) importCustomAndCreateDefault(t *tools.Tool, spec Spec) error {
+	name := s.nextImportedName(t.Name)
+	if err := snapshot(t, s.profDir(t.Name, name), name, "Auto-imported custom provider", "", "", &spec); err != nil {
+		return err
+	}
+	if err := t.UseOfficialAuth(); err != nil {
+		return fmt.Errorf("creating official default: %w", err)
+	}
+	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official provider)", "", "", "", nil); err != nil {
+		_ = s.restoreFrom(t, s.profDir(t.Name, name))
+		return err
+	}
+	if err := s.restoreFrom(t, s.profDir(t.Name, name)); err != nil {
+		return fmt.Errorf("restoring imported custom provider: %w", err)
+	}
+	return s.setActive(t.Name, name)
+}
+
+// splitCustomDefault migrates custom defaults created by earlier builds into the
+// same imported + clean official layout used for new installations.
+func (s *Store) splitCustomDefault(t *tools.Tool) error {
+	name := s.nextImportedName(t.Name)
 	if err := os.Rename(s.profDir(t.Name, DefaultName), s.profDir(t.Name, name)); err != nil {
 		return fmt.Errorf("preserving custom default as %q: %w", name, err)
 	}
-	if m, err := s.LoadManifest(t.Name, name); err == nil {
-		m.Label = name
-		if err := writeManifest(s.profDir(t.Name, name), m); err != nil {
-			return err
-		}
+	m, err := s.LoadManifest(t.Name, name)
+	if err != nil {
+		return err
+	}
+	m.Label = name
+	if err := writeManifest(s.profDir(t.Name, name), m); err != nil {
+		return err
 	}
 	if err := t.UseOfficialAuth(); err != nil {
 		_ = os.Rename(s.profDir(t.Name, name), s.profDir(t.Name, DefaultName))
-		return fmt.Errorf("activating official OAuth: %w", err)
+		return fmt.Errorf("creating official default: %w", err)
 	}
-	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official OAuth)", "", "", "", nil); err != nil {
+	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official provider)", "", "", "", nil); err != nil {
 		return err
 	}
-	return s.setActive(t.Name, DefaultName)
+	if err := s.restoreFrom(t, s.profDir(t.Name, name)); err != nil {
+		return err
+	}
+	return s.setActive(t.Name, name)
 }

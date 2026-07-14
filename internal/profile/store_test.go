@@ -140,32 +140,32 @@ func TestEnsureDefaultAndActive(t *testing.T) {
 	}
 }
 
-func TestEnsureDefaultMakesThirdPartyProviderEditable(t *testing.T) {
+func TestEnsureDefaultImportsThirdPartyAndCreatesOfficialDefault(t *testing.T) {
 	dir := t.TempDir()
 	tool, cfg, _ := fakeTool(dir)
 	tool.DefaultEndpoint = "https://api.openai.com/v1"
 	tool.Describe = func() (tools.Info, error) {
 		return tools.Info{Endpoint: "https://relay.example.com/v1", Secret: "relay-key", Model: "relay-model"}, nil
 	}
-	tool.ApplyAuth = func(a tools.AuthSpec) error { return os.WriteFile(cfg, []byte(a.Endpoint), 0o600) }
+	tool.UseOfficialAuth = func() error { return os.WriteFile(cfg, []byte("official"), 0o600) }
 	write(t, cfg, "third-party")
 
 	s := newStore(t)
 	if err := s.EnsureDefault(tool); err != nil {
 		t.Fatal(err)
 	}
-	sp, ok := s.GetSpec(tool.Name, DefaultName)
+	sp, ok := s.GetSpec(tool.Name, "imported")
 	if !ok || sp.Endpoint != "https://relay.example.com/v1" || sp.Key != "relay-key" || sp.Model != "relay-model" {
-		t.Fatalf("default spec = %#v, %v", sp, ok)
+		t.Fatalf("imported spec = %#v, %v", sp, ok)
 	}
-	if err := s.EditProfile(tool, DefaultName, DefaultName, Spec{Endpoint: "https://other.example.com/v1"}); err != nil {
-		t.Fatal(err)
+	if _, editable := s.GetSpec(tool.Name, DefaultName); editable {
+		t.Error("official default is editable")
 	}
-	if got, _ := os.ReadFile(cfg); string(got) != "https://other.example.com/v1" {
-		t.Errorf("edited config = %q", got)
+	if got := s.Active(tool.Name); got != "imported" {
+		t.Errorf("active = %q, want imported", got)
 	}
-	if err := s.Remove(tool.Name, DefaultName); err == nil {
-		t.Error("editable custom default was deletable")
+	if got, _ := os.ReadFile(cfg); string(got) != "third-party" {
+		t.Errorf("live config = %q, want third-party", got)
 	}
 }
 
@@ -198,11 +198,11 @@ func TestEnsureDefaultPromotesOfficialOAuthAndPreservesCustomProfile(t *testing.
 	if _, editable := s.GetSpec(tool.Name, DefaultName); editable {
 		t.Error("official OAuth default is editable")
 	}
-	if got := s.Active(tool.Name); got != DefaultName {
-		t.Errorf("active = %q, want default", got)
+	if got := s.Active(tool.Name); got != "imported" {
+		t.Errorf("active = %q, want imported", got)
 	}
-	if got, _ := os.ReadFile(cfg); string(got) != "official" {
-		t.Errorf("live config = %q, want official", got)
+	if got, _ := os.ReadFile(cfg); string(got) != "custom" {
+		t.Errorf("live config = %q, want custom", got)
 	}
 }
 
