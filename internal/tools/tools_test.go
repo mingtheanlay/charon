@@ -572,13 +572,11 @@ func TestNotDetectedInEmptyHome(t *testing.T) {
 func TestPiDescribeAndApply(t *testing.T) {
 	home := sandboxHome(t)
 	dir := filepath.Join(home, ".pi", "agent")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, filepath.Join(dir, "settings.json"), `{}`)
 
 	c := Find("pi")
 	if !c.Detected() {
-		t.Fatal("pi should be detected via ~/.pi/agent")
+		t.Fatal("pi should be detected via settings.json")
 	}
 	if err := c.ApplyAuth(AuthSpec{
 		Endpoint:  "https://openrouter.ai/api/v1",
