@@ -198,11 +198,11 @@ func TestEnsureDefaultPromotesOfficialOAuthAndPreservesCustomProfile(t *testing.
 	if _, editable := s.GetSpec(tool.Name, DefaultName); editable {
 		t.Error("official OAuth default is editable")
 	}
-	if got := s.Active(tool.Name); got != DefaultName {
-		t.Errorf("active = %q, want default", got)
+	if got := s.Active(tool.Name); got != "imported" {
+		t.Errorf("active = %q, want imported", got)
 	}
-	if got, _ := os.ReadFile(cfg); string(got) != "official" {
-		t.Errorf("live config = %q, want official", got)
+	if got, _ := os.ReadFile(cfg); string(got) != "custom" {
+		t.Errorf("live config = %q, want custom", got)
 	}
 }
 
@@ -237,6 +237,37 @@ func TestEnsureDefaultClearsCustomRoutingAfterOfficialOAuthLogin(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(cfg); string(got) != "official-oauth" {
 		t.Errorf("live config = %q, want official-oauth", got)
+	}
+}
+
+func TestEnsureDefaultDoesNotOverrideActiveCustomProfileWhenOAuthExists(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: "http://localhost:20128/v1"}, nil }
+	tool.OfficialOAuth = func() bool { return true }
+	cleared := false
+	tool.UseOfficialAuth = func() error { cleared = true; return nil }
+	write(t, cfg, "official")
+
+	s := newStore(t)
+	if err := snapshot(tool, s.profDir(tool.Name, DefaultName), "Default", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveWithSpec(tool, "custom", Spec{Endpoint: "http://localhost:20128/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.setActive(tool.Name, "custom"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if cleared {
+		t.Error("active custom profile was replaced by official OAuth")
+	}
+	if got := s.Active(tool.Name); got != "custom" {
+		t.Errorf("active = %q, want custom", got)
 	}
 }
 

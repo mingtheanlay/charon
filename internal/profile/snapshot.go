@@ -186,7 +186,9 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 		if _, custom := s.GetSpec(t.Name, DefaultName); custom && t.UseOfficialAuth != nil {
 			return s.splitCustomDefault(t)
 		}
-		if t.OfficialOAuth != nil && t.OfficialOAuth() && t.UseOfficialAuth != nil && s.liveUsesCustomEndpoint(t) {
+		// Never override an explicitly active custom profile merely because OAuth
+		// credentials also exist. Switching to default performs official cleanup.
+		if s.Active(t.Name) == DefaultName && t.OfficialOAuth != nil && t.OfficialOAuth() && t.UseOfficialAuth != nil && s.liveUsesCustomEndpoint(t) {
 			return s.activateOfficialOAuth(t)
 		}
 		return nil
