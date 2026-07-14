@@ -186,10 +186,22 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 		if _, custom := s.GetSpec(t.Name, DefaultName); custom && t.UseOfficialAuth != nil {
 			return s.splitCustomDefault(t)
 		}
-		// Never override an explicitly active custom profile merely because OAuth
-		// credentials also exist. Switching to default performs official cleanup.
+		// A genuinely fresh OAuth login (the credential itself changed since we last
+		// saw it) always takes priority, even over an explicitly active custom
+		// profile: back up whatever was live and switch to official default, so the
+		// custom profile survives untouched and can be switched back to later.
+		if fresh, err := s.freshOAuthLogin(t); err != nil {
+			return err
+		} else if fresh && t.UseOfficialAuth != nil {
+			return s.activateOfficialOAuth(t)
+		}
+		// Stale custom routing left over despite official OAuth already being active
+		// (not a fresh login) is only cleared when nothing else has claimed activity.
 		if s.Active(t.Name) == DefaultName && t.OfficialOAuth != nil && t.OfficialOAuth() && t.UseOfficialAuth != nil && s.liveUsesCustomEndpoint(t) {
 			return s.activateOfficialOAuth(t)
+		}
+		if matched, err := s.reconcileActiveCustomProfile(t); err != nil || matched {
+			return err
 		}
 		return nil
 	}
@@ -204,16 +216,100 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 		endpoint := strings.TrimRight(info.Endpoint, "/")
 		defaultEndpoint := strings.TrimRight(t.DefaultEndpoint, "/")
 		if endpoint != "" && !strings.Contains(endpoint, "(default)") && endpoint != defaultEndpoint && t.UseOfficialAuth != nil {
-			return s.importCustomAndCreateDefault(t, Spec{Endpoint: info.Endpoint, Key: info.Secret, Model: info.Model})
+			if err := s.importCustomAndCreateDefault(t, Spec{Endpoint: info.Endpoint, Key: info.Secret, Model: info.Model}); err != nil {
+				return err
+			}
+			return s.recordOAuthBaseline(t)
 		}
 	}
 	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official provider)", "", "", "", nil); err != nil {
 		return err
 	}
 	if s.Active(t.Name) == "" {
-		return s.setActive(t.Name, DefaultName)
+		if err := s.setActive(t.Name, DefaultName); err != nil {
+			return err
+		}
+	}
+	return s.recordOAuthBaseline(t)
+}
+
+// freshOAuthLogin reports whether the *official* OAuth credential changed since
+// charon last recorded it — i.e. a login just happened, not merely "a token
+// exists" (true forever after the first login) and not some other credential
+// write (e.g. charon's own `switch` rewriting auth.json with a profile's API
+// key). Only fingerprints while OfficialOAuth() is true, so switching to/from a
+// custom profile never looks like a login. The first time a fingerprint is seen
+// it's recorded as a baseline rather than treated as a login, so upgrading
+// charon on an existing official-OAuth setup doesn't surprise-switch anyone.
+func (s *Store) freshOAuthLogin(t *tools.Tool) (bool, error) {
+	if t.OAuthFingerprint == nil || t.OfficialOAuth == nil || !t.OfficialOAuth() {
+		return false, nil
+	}
+	fp := t.OAuthFingerprint()
+	if fp == "" {
+		return false, nil
+	}
+	last := s.lastOAuthFingerprint(t.Name)
+	if last == "" {
+		return false, s.setOAuthFingerprint(t.Name, fp)
+	}
+	if fp == last {
+		return false, nil
+	}
+	return true, s.setOAuthFingerprint(t.Name, fp)
+}
+
+// recordOAuthBaseline stores the current official OAuth fingerprint without
+// treating it as a fresh login, for paths that don't already go through
+// freshOAuthLogin.
+func (s *Store) recordOAuthBaseline(t *tools.Tool) error {
+	if t.OAuthFingerprint == nil || t.OfficialOAuth == nil || !t.OfficialOAuth() {
+		return nil
+	}
+	if fp := t.OAuthFingerprint(); fp != "" {
+		return s.setOAuthFingerprint(t.Name, fp)
 	}
 	return nil
+}
+
+// reconcileActiveCustomProfile re-activates a saved custom profile when live
+// routing was pointed at it directly (e.g. a manual config edit) instead of
+// through charon switch. Only fires on a unique endpoint match; an endpoint
+// matching no saved profile, or matching more than one, is left as-is — the
+// "default" label stays, and status/ls already show the live endpoint and a
+// "(modified)" marker via Drift.
+func (s *Store) reconcileActiveCustomProfile(t *tools.Tool) (bool, error) {
+	if s.Active(t.Name) != DefaultName || t.Describe == nil {
+		return false, nil
+	}
+	info, err := t.Describe()
+	if err != nil {
+		return false, nil
+	}
+	endpoint := strings.TrimRight(info.Endpoint, "/")
+	if endpoint == "" || endpoint == strings.TrimRight(t.DefaultEndpoint, "/") || strings.Contains(endpoint, "(default)") {
+		return false, nil
+	}
+	match := ""
+	ambiguous := false
+	for _, name := range s.List(t.Name) {
+		if name == DefaultName {
+			continue
+		}
+		spec, ok := s.GetSpec(t.Name, name)
+		if !ok || strings.TrimRight(spec.Endpoint, "/") != endpoint {
+			continue
+		}
+		if match != "" {
+			ambiguous = true
+			break
+		}
+		match = name
+	}
+	if ambiguous || match == "" {
+		return false, nil
+	}
+	return true, s.setActive(t.Name, match)
 }
 
 func (s *Store) liveUsesCustomEndpoint(t *tools.Tool) bool {

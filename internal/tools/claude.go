@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -87,6 +89,14 @@ func newClaude() *Tool {
 			delete(env, "ANTHROPIC_CUSTOM_MODEL_OPTION")
 			delete(s, "model")
 			return writeJSONMap(settingsPath, s, 0o600)
+		},
+		OAuthFingerprint: func() string {
+			v, err := secret.KeychainRead(claudeKeychainService)
+			if err != nil {
+				return ""
+			}
+			sum := sha256.Sum256([]byte(v))
+			return hex.EncodeToString(sum[:])
 		},
 		Detected: func() bool {
 			if detected("claude", settingsPath) {

@@ -240,6 +240,137 @@ func TestEnsureDefaultClearsCustomRoutingAfterOfficialOAuthLogin(t *testing.T) {
 	}
 }
 
+func TestEnsureDefaultReconcilesUniqueLiveCustomProfile(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: "http://localhost:20128/v1"}, nil }
+	write(t, cfg, "live-custom")
+
+	s := newStore(t)
+	if err := snapshot(tool, s.profDir(tool.Name, DefaultName), "Default", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveWithSpec(tool, "9router", Spec{Endpoint: "http://localhost:20128/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.setActive(tool.Name, DefaultName); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Active(tool.Name); got != "9router" {
+		t.Errorf("active = %q, want 9router", got)
+	}
+}
+
+func TestEnsureDefaultDoesNotReconcileAmbiguousCustomEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: "http://localhost:20128/v1"}, nil }
+	write(t, cfg, "live-custom")
+
+	s := newStore(t)
+	if err := snapshot(tool, s.profDir(tool.Name, DefaultName), "Default", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"proxy-a", "proxy-b"} {
+		if err := s.SaveWithSpec(tool, name, Spec{Endpoint: "http://localhost:20128/v1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.setActive(tool.Name, DefaultName); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Active(tool.Name); got != DefaultName {
+		t.Errorf("active = %q, want default for ambiguous match", got)
+	}
+}
+
+func TestEnsureDefaultLeavesUnmatchedCustomEndpointAsDefault(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: "http://localhost:20128/v1"}, nil }
+	write(t, cfg, "live-custom")
+
+	s := newStore(t)
+	if err := snapshot(tool, s.profDir(tool.Name, DefaultName), "Default", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.setActive(tool.Name, DefaultName); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Active(tool.Name); got != DefaultName {
+		t.Errorf("active = %q, want default (no matching profile to reconcile to)", got)
+	}
+	if len(s.List(tool.Name)) != 1 {
+		t.Errorf("profiles = %v, want no new profile auto-imported", s.List(tool.Name))
+	}
+	info, err := tool.Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Endpoint != "http://localhost:20128/v1" {
+		t.Errorf("live endpoint = %q, want custom URL surfaced even though active=default", info.Endpoint)
+	}
+}
+
+func TestEnsureDefaultSwitchesOnFreshOAuthLoginEvenOverNamedCustomProfile(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	endpoint := "http://localhost:20128/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: endpoint}, nil }
+	tool.OfficialOAuth = func() bool { return true }
+	tool.UseOfficialAuth = func() error {
+		endpoint = tool.DefaultEndpoint
+		return nil
+	}
+	fingerprint := "old-token"
+	tool.OAuthFingerprint = func() string { return fingerprint }
+	write(t, cfg, "official")
+
+	s := newStore(t)
+	if err := snapshot(tool, s.profDir(tool.Name, DefaultName), "Default", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveWithSpec(tool, "custom", Spec{Endpoint: "http://localhost:20128/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.setActive(tool.Name, "custom"); err != nil {
+		t.Fatal(err)
+	}
+	// First EnsureDefault just records the baseline fingerprint; the standing
+	// token must not itself look like a login.
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Active(tool.Name); got != "custom" {
+		t.Fatalf("active after baseline = %q, want custom (standing token isn't a login)", got)
+	}
+
+	// A fresh login rotates the credential fingerprint.
+	fingerprint = "new-token-after-login"
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Active(tool.Name); got != DefaultName {
+		t.Errorf("active = %q, want default (fresh OAuth login should win)", got)
+	}
+	if !s.Exists(tool.Name, "custom") {
+		t.Error("custom profile was deleted, want it preserved for switching back")
+	}
+}
+
 func TestEnsureDefaultDoesNotOverrideActiveCustomProfileWhenOAuthExists(t *testing.T) {
 	dir := t.TempDir()
 	tool, cfg, _ := fakeTool(dir)

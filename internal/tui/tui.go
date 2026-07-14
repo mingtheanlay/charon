@@ -335,7 +335,7 @@ func (m *model) profileDetail(name string) string {
 	if hasSpec && model == "" {
 		model = spec.Model
 	}
-	if !hasSpec && model == "" && effort == "" {
+	if !hasSpec && model == "" && effort == "" && liveEndpoint == "" {
 		if man, err := m.store.LoadManifest(m.tool.Name, name); err == nil && man.Label != "" {
 			return man.Label
 		}

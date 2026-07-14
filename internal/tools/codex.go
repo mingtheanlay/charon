@@ -96,6 +96,13 @@ func newCodex() *Tool {
 			delete(cfg, "model_context_window")
 			return writeTOMLMap(configPath, cfg, 0o600)
 		},
+		OAuthFingerprint: func() string {
+			info, err := os.Stat(authPath)
+			if err != nil {
+				return ""
+			}
+			return info.ModTime().String()
+		},
 		Detected: func() bool {
 			return detected("codex", configPath, authPath)
 		},
