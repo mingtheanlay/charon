@@ -76,6 +76,15 @@ func TestCodexDescribeAndApply(t *testing.T) {
 	}
 }
 
+func TestCodexDetectedWithoutAuth(t *testing.T) {
+	home := sandboxHome(t)
+	writeFile(t, filepath.Join(home, ".codex", "config.toml"), "model = \"gpt-5.5\"\n")
+
+	if !Find("codex").Detected() {
+		t.Fatal("codex should be detected via ~/.codex without auth.json")
+	}
+}
+
 func TestCodexPinsClaudeContextWindow(t *testing.T) {
 	home := sandboxHome(t)
 	// A prior Claude profile pinned the window; switching to an OpenAI model
@@ -515,6 +524,7 @@ func TestEnsureOnlyCharonChanged(t *testing.T) {
 
 func TestNotDetectedInEmptyHome(t *testing.T) {
 	sandboxHome(t)
+	t.Setenv("PATH", t.TempDir())
 	for _, name := range []string{"codex", "opencode", "pi"} {
 		if Find(name).Detected() {
 			t.Errorf("%s should not be detected in empty HOME", name)
