@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"charon/internal/artifact"
@@ -159,13 +160,25 @@ func (s *Store) GetSpec(tool, name string) (Spec, bool) {
 }
 
 // EnsureDefault captures the "default" profile the first time a tool is seen, so
-// revert always works. It writes the reserved name directly — Save rejects it.
+// revert always works. Custom provider configs are not captured under the reserved,
+// immutable name. It writes the reserved name directly — Save rejects it.
 func (s *Store) EnsureDefault(t *tools.Tool) error {
 	if s.Exists(t.Name, DefaultName) {
 		return nil
 	}
 	if t.Detected == nil || !t.Detected() {
 		return nil
+	}
+	if t.Describe != nil {
+		info, err := t.Describe()
+		if err != nil {
+			return fmt.Errorf("describing %s before capturing default: %w", t.Title, err)
+		}
+		endpoint := strings.TrimRight(info.Endpoint, "/")
+		defaultEndpoint := strings.TrimRight(t.DefaultEndpoint, "/")
+		if endpoint != "" && !strings.Contains(endpoint, "(default)") && endpoint != defaultEndpoint {
+			return nil
+		}
 	}
 	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (auto-captured)", "", "", "", nil); err != nil {
 		return err

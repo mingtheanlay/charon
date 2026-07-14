@@ -140,6 +140,27 @@ func TestEnsureDefaultAndActive(t *testing.T) {
 	}
 }
 
+func TestEnsureDefaultSkipsThirdPartyProvider(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) {
+		return tools.Info{Endpoint: "https://relay.example.com/v1"}, nil
+	}
+	write(t, cfg, "third-party")
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if s.Exists(tool.Name, DefaultName) {
+		t.Error("third-party provider was captured as immutable default")
+	}
+	if got := s.Active(tool.Name); got != "" {
+		t.Errorf("active = %q, want empty", got)
+	}
+}
+
 func TestSaveSwitchRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	tool, cfg, auth := fakeTool(dir)
