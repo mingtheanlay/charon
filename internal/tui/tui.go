@@ -442,20 +442,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // onEditKey opens the edit form for the highlighted profile ("e" on the profiles
-// view). The default profile and captured login backups have nothing to edit.
+// view). Official defaults and captured login backups have nothing to edit.
 func (m model) onEditKey() (tea.Model, tea.Cmd) {
 	it, ok := m.selectedProfile()
 	if !ok {
 		return m, nil
 	}
-	if it.value == profile.DefaultName {
-		m.setStatus(statusInfo, "the default profile can't be edited")
-		return m, nil
-	}
 	sp, ok := m.store.GetSpec(m.tool.Name, it.value)
 	if !ok {
-		// OAuth / captured backups have no endpoint/key to change.
-		m.setStatus(statusInfo, "this login backup has no editable settings")
+		// OAuth / official default / captured backups have no endpoint/key to change.
+		m.setStatus(statusInfo, "this profile has no editable settings")
 		return m, nil
 	}
 	// spec.Model is frozen at Add-time; prefer whatever the list just showed (the

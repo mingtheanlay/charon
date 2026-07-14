@@ -131,6 +131,26 @@ func (s *Store) EditProfile(t *tools.Tool, oldName, newName string, spec Spec, a
 	if newName == "" {
 		newName = oldName
 	}
+	if oldName == DefaultName {
+		if newName != DefaultName {
+			return fmt.Errorf("the default profile cannot be renamed")
+		}
+		if _, ok := s.GetSpec(t.Name, DefaultName); !ok {
+			return fmt.Errorf("the official default profile cannot be edited")
+		}
+		if t.ApplyAuth == nil {
+			return fmt.Errorf("%s does not support edit", t.Title)
+		}
+		if t.Detected != nil && t.Detected() {
+			if _, err := s.backup(t, "auto-backup before editing default"); err != nil {
+				return fmt.Errorf("backup failed, aborting: %w", err)
+			}
+		}
+		if err := t.ApplyAuth(tools.AuthSpec{Endpoint: spec.Endpoint, Key: spec.Key, Model: spec.Model, AllModels: allModels}); err != nil {
+			return err
+		}
+		return snapshot(t, s.profDir(t.Name, DefaultName), "Default (auto-captured custom provider)", "", "", "", &spec)
+	}
 	prevActive := s.Active(t.Name)
 	wasActive := prevActive == oldName
 
@@ -160,15 +180,14 @@ func (s *Store) GetSpec(tool, name string) (Spec, bool) {
 }
 
 // EnsureDefault captures the "default" profile the first time a tool is seen, so
-// revert always works. Custom provider configs are not captured under the reserved,
-// immutable name. It writes the reserved name directly — Save rejects it.
+// revert always works. A custom provider remains protected from deletion and rename,
+// but records an editable spec. It writes the reserved name directly — Save rejects it.
 func (s *Store) EnsureDefault(t *tools.Tool) error {
-	if s.Exists(t.Name, DefaultName) {
-		return nil
-	}
 	if t.Detected == nil || !t.Detected() {
 		return nil
 	}
+	var spec *Spec
+	label := "Default (auto-captured)"
 	if t.Describe != nil {
 		info, err := t.Describe()
 		if err != nil {
@@ -177,10 +196,25 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 		endpoint := strings.TrimRight(info.Endpoint, "/")
 		defaultEndpoint := strings.TrimRight(t.DefaultEndpoint, "/")
 		if endpoint != "" && !strings.Contains(endpoint, "(default)") && endpoint != defaultEndpoint {
-			return nil
+			spec = &Spec{Endpoint: info.Endpoint, Key: info.Secret, Model: info.Model}
+			label = "Default (auto-captured custom provider)"
 		}
 	}
-	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (auto-captured)", "", "", "", nil); err != nil {
+	if s.Exists(t.Name, DefaultName) {
+		// Upgrade defaults captured by older versions without replacing snapshot files.
+		if spec != nil {
+			m, err := s.LoadManifest(t.Name, DefaultName)
+			if err != nil {
+				return err
+			}
+			if m.Spec == nil {
+				m.Spec, m.Label = spec, label
+				return writeManifest(s.profDir(t.Name, DefaultName), m)
+			}
+		}
+		return nil
+	}
+	if err := snapshot(t, s.profDir(t.Name, DefaultName), label, "", "", "", spec); err != nil {
 		return err
 	}
 	if s.Active(t.Name) == "" {
