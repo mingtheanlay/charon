@@ -184,6 +184,9 @@ func (s *Store) GetSpec(tool, name string) (Spec, bool) {
 // but records an editable spec. It writes the reserved name directly — Save rejects it.
 func (s *Store) EnsureDefault(t *tools.Tool) error {
 	if s.Exists(t.Name, DefaultName) {
+		if _, custom := s.GetSpec(t.Name, DefaultName); custom && t.OfficialOAuth != nil && t.OfficialOAuth() && t.UseOfficialAuth != nil {
+			return s.promoteOfficialDefault(t)
+		}
 		return nil
 	}
 	if t.Detected == nil || !t.Detected() {
@@ -210,4 +213,33 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 		return s.setActive(t.Name, DefaultName)
 	}
 	return nil
+}
+
+// promoteOfficialDefault preserves an auto-captured custom default as an editable
+// imported profile, then clears custom routing and captures official OAuth as default.
+func (s *Store) promoteOfficialDefault(t *tools.Tool) error {
+	if _, err := s.backup(t, "auto-backup before activating official OAuth"); err != nil {
+		return fmt.Errorf("backup failed, aborting: %w", err)
+	}
+	name := "imported"
+	for i := 2; s.Exists(t.Name, name); i++ {
+		name = fmt.Sprintf("imported-%d", i)
+	}
+	if err := os.Rename(s.profDir(t.Name, DefaultName), s.profDir(t.Name, name)); err != nil {
+		return fmt.Errorf("preserving custom default as %q: %w", name, err)
+	}
+	if m, err := s.LoadManifest(t.Name, name); err == nil {
+		m.Label = name
+		if err := writeManifest(s.profDir(t.Name, name), m); err != nil {
+			return err
+		}
+	}
+	if err := t.UseOfficialAuth(); err != nil {
+		_ = os.Rename(s.profDir(t.Name, name), s.profDir(t.Name, DefaultName))
+		return fmt.Errorf("activating official OAuth: %w", err)
+	}
+	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official OAuth)", "", "", "", nil); err != nil {
+		return err
+	}
+	return s.setActive(t.Name, DefaultName)
 }

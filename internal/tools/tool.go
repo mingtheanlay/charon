@@ -47,6 +47,8 @@ type Tool struct {
 	Detected        func() bool          // is the tool installed/configured?
 	Describe        func() (Info, error) // read live config into an Info
 	ApplyAuth       func(AuthSpec) error // write endpoint/key/model into live config
+	OfficialOAuth   func() bool          // official OAuth credentials exist despite custom routing
+	UseOfficialAuth func() error         // clear custom routing without removing OAuth credentials
 }
 
 func detected(executable string, paths ...string) bool {

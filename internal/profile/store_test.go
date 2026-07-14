@@ -169,6 +169,43 @@ func TestEnsureDefaultMakesThirdPartyProviderEditable(t *testing.T) {
 	}
 }
 
+func TestEnsureDefaultPromotesOfficialOAuthAndPreservesCustomProfile(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	oauth := false
+	tool.Describe = func() (tools.Info, error) {
+		if oauth {
+			return tools.Info{Endpoint: "https://relay.example.com/v1", AuthMode: "oauth"}, nil
+		}
+		return tools.Info{Endpoint: "https://relay.example.com/v1", Secret: "relay-key"}, nil
+	}
+	tool.OfficialOAuth = func() bool { return oauth }
+	tool.UseOfficialAuth = func() error { return os.WriteFile(cfg, []byte("official"), 0o600) }
+	write(t, cfg, "custom")
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	oauth = true
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.GetSpec(tool.Name, "imported"); !ok {
+		t.Error("custom default was not preserved as editable imported profile")
+	}
+	if _, editable := s.GetSpec(tool.Name, DefaultName); editable {
+		t.Error("official OAuth default is editable")
+	}
+	if got := s.Active(tool.Name); got != DefaultName {
+		t.Errorf("active = %q, want default", got)
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != "official" {
+		t.Errorf("live config = %q, want official", got)
+	}
+}
+
 func TestEnsureDefaultDoesNotReclassifyExistingOfficialDefault(t *testing.T) {
 	dir := t.TempDir()
 	tool, cfg, _ := fakeTool(dir)

@@ -70,6 +70,24 @@ func newClaude() *Tool {
 			}
 			return writeJSONMap(settingsPath, s, 0o600)
 		},
+		OfficialOAuth: func() bool {
+			_, err := secret.KeychainRead(claudeKeychainService)
+			return err == nil
+		},
+		UseOfficialAuth: func() error {
+			s, err := loadJSONMap(settingsPath)
+			if err != nil {
+				return err
+			}
+			env := subMap(s, "env")
+			delete(env, "ANTHROPIC_API_KEY")
+			delete(env, "ANTHROPIC_AUTH_TOKEN")
+			delete(env, "ANTHROPIC_BASE_URL")
+			delete(env, "ANTHROPIC_MODEL")
+			delete(env, "ANTHROPIC_CUSTOM_MODEL_OPTION")
+			delete(s, "model")
+			return writeJSONMap(settingsPath, s, 0o600)
+		},
 		Detected: func() bool {
 			if detected("claude", settingsPath) {
 				return true
