@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"charon/internal/tools"
+
 	"github.com/charmbracelet/bubbles/list"
 )
 
@@ -63,6 +65,16 @@ func TestWizardStep(t *testing.T) {
 		if n != tt.wantN || total != tt.wantTotal || label != tt.wantLabel {
 			t.Errorf("wizardStep(%v) = (%d, %d, %q), want (%d, %d, %q)",
 				tt.view, n, total, label, tt.wantN, tt.wantTotal, tt.wantLabel)
+		}
+	}
+}
+
+func TestDefaultEditFormHidesNameField(t *testing.T) {
+	m := model{tool: &tools.Tool{Title: "Fake"}, wiz: wizard{name: "default", origName: "default"}}
+	m.loadEditForm()
+	for _, raw := range m.list.Items() {
+		if raw.(item).value == fieldName {
+			t.Fatal("default edit form exposes rename field")
 		}
 	}
 }

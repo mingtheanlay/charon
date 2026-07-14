@@ -140,6 +140,292 @@ func TestEnsureDefaultAndActive(t *testing.T) {
 	}
 }
 
+func TestEnsureDefaultImportsThirdPartyAndCreatesOfficialDefault(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) {
+		return tools.Info{Endpoint: "https://relay.example.com/v1", Secret: "relay-key", Model: "relay-model"}, nil
+	}
+	tool.UseOfficialAuth = func() error { return os.WriteFile(cfg, []byte("official"), 0o600) }
+	write(t, cfg, "third-party")
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	sp, ok := s.GetSpec(tool.Name, "imported")
+	if !ok || sp.Endpoint != "https://relay.example.com/v1" || sp.Key != "relay-key" || sp.Model != "relay-model" {
+		t.Fatalf("imported spec = %#v, %v", sp, ok)
+	}
+	if _, editable := s.GetSpec(tool.Name, DefaultName); editable {
+		t.Error("official default is editable")
+	}
+	if got := s.Active(tool.Name); got != "imported" {
+		t.Errorf("active = %q, want imported", got)
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != "third-party" {
+		t.Errorf("live config = %q, want third-party", got)
+	}
+}
+
+func TestEnsureDefaultPromotesOfficialOAuthAndPreservesCustomProfile(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	oauth := false
+	tool.Describe = func() (tools.Info, error) {
+		if oauth {
+			return tools.Info{Endpoint: "https://relay.example.com/v1", AuthMode: "oauth"}, nil
+		}
+		return tools.Info{Endpoint: "https://relay.example.com/v1", Secret: "relay-key"}, nil
+	}
+	tool.OfficialOAuth = func() bool { return oauth }
+	tool.UseOfficialAuth = func() error { return os.WriteFile(cfg, []byte("official"), 0o600) }
+	write(t, cfg, "custom")
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	oauth = true
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.GetSpec(tool.Name, "imported"); !ok {
+		t.Error("custom default was not preserved as editable imported profile")
+	}
+	if _, editable := s.GetSpec(tool.Name, DefaultName); editable {
+		t.Error("official OAuth default is editable")
+	}
+	if got := s.Active(tool.Name); got != "imported" {
+		t.Errorf("active = %q, want imported", got)
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != "custom" {
+		t.Errorf("live config = %q, want custom", got)
+	}
+}
+
+func TestEnsureDefaultClearsCustomRoutingAfterOfficialOAuthLogin(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	endpoint := "https://api.openai.com/v1"
+	oauth := false
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: endpoint}, nil }
+	tool.OfficialOAuth = func() bool { return oauth }
+	tool.UseOfficialAuth = func() error {
+		endpoint = tool.DefaultEndpoint
+		return os.WriteFile(cfg, []byte("official-oauth"), 0o600)
+	}
+	write(t, cfg, "official")
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	endpoint, oauth = "http://localhost:20128/v1", true
+	write(t, cfg, "custom-routing-with-oauth")
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if endpoint != tool.DefaultEndpoint {
+		t.Errorf("endpoint = %q, want official", endpoint)
+	}
+	if got := s.Active(tool.Name); got != DefaultName {
+		t.Errorf("active = %q, want default", got)
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != "official-oauth" {
+		t.Errorf("live config = %q, want official-oauth", got)
+	}
+}
+
+func TestEnsureDefaultReconcilesUniqueLiveCustomProfile(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: "http://localhost:20128/v1"}, nil }
+	write(t, cfg, "live-custom")
+
+	s := newStore(t)
+	if err := snapshot(tool, s.profDir(tool.Name, DefaultName), "Default", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveWithSpec(tool, "9router", Spec{Endpoint: "http://localhost:20128/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.setActive(tool.Name, DefaultName); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Active(tool.Name); got != "9router" {
+		t.Errorf("active = %q, want 9router", got)
+	}
+}
+
+func TestEnsureDefaultDoesNotReconcileAmbiguousCustomEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: "http://localhost:20128/v1"}, nil }
+	write(t, cfg, "live-custom")
+
+	s := newStore(t)
+	if err := snapshot(tool, s.profDir(tool.Name, DefaultName), "Default", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"proxy-a", "proxy-b"} {
+		if err := s.SaveWithSpec(tool, name, Spec{Endpoint: "http://localhost:20128/v1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.setActive(tool.Name, DefaultName); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Active(tool.Name); got != DefaultName {
+		t.Errorf("active = %q, want default for ambiguous match", got)
+	}
+}
+
+func TestEnsureDefaultLeavesUnmatchedCustomEndpointAsDefault(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: "http://localhost:20128/v1"}, nil }
+	write(t, cfg, "live-custom")
+
+	s := newStore(t)
+	if err := snapshot(tool, s.profDir(tool.Name, DefaultName), "Default", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.setActive(tool.Name, DefaultName); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Active(tool.Name); got != DefaultName {
+		t.Errorf("active = %q, want default (no matching profile to reconcile to)", got)
+	}
+	if len(s.List(tool.Name)) != 1 {
+		t.Errorf("profiles = %v, want no new profile auto-imported", s.List(tool.Name))
+	}
+	info, err := tool.Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Endpoint != "http://localhost:20128/v1" {
+		t.Errorf("live endpoint = %q, want custom URL surfaced even though active=default", info.Endpoint)
+	}
+}
+
+func TestEnsureDefaultSwitchesOnFreshOAuthLoginEvenOverNamedCustomProfile(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	endpoint := "http://localhost:20128/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: endpoint}, nil }
+	tool.OfficialOAuth = func() bool { return true }
+	tool.UseOfficialAuth = func() error {
+		endpoint = tool.DefaultEndpoint
+		return nil
+	}
+	fingerprint := "old-token"
+	tool.OAuthFingerprint = func() string { return fingerprint }
+	write(t, cfg, "official")
+
+	s := newStore(t)
+	if err := snapshot(tool, s.profDir(tool.Name, DefaultName), "Default", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveWithSpec(tool, "custom", Spec{Endpoint: "http://localhost:20128/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.setActive(tool.Name, "custom"); err != nil {
+		t.Fatal(err)
+	}
+	// First EnsureDefault just records the baseline fingerprint; the standing
+	// token must not itself look like a login.
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Active(tool.Name); got != "custom" {
+		t.Fatalf("active after baseline = %q, want custom (standing token isn't a login)", got)
+	}
+
+	// A fresh login rotates the credential fingerprint.
+	fingerprint = "new-token-after-login"
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Active(tool.Name); got != DefaultName {
+		t.Errorf("active = %q, want default (fresh OAuth login should win)", got)
+	}
+	if !s.Exists(tool.Name, "custom") {
+		t.Error("custom profile was deleted, want it preserved for switching back")
+	}
+}
+
+func TestEnsureDefaultDoesNotOverrideActiveCustomProfileWhenOAuthExists(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: "http://localhost:20128/v1"}, nil }
+	tool.OfficialOAuth = func() bool { return true }
+	cleared := false
+	tool.UseOfficialAuth = func() error { cleared = true; return nil }
+	write(t, cfg, "official")
+
+	s := newStore(t)
+	if err := snapshot(tool, s.profDir(tool.Name, DefaultName), "Default", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveWithSpec(tool, "custom", Spec{Endpoint: "http://localhost:20128/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.setActive(tool.Name, "custom"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if cleared {
+		t.Error("active custom profile was replaced by official OAuth")
+	}
+	if got := s.Active(tool.Name); got != "custom" {
+		t.Errorf("active = %q, want custom", got)
+	}
+}
+
+func TestEnsureDefaultDoesNotReclassifyExistingOfficialDefault(t *testing.T) {
+	dir := t.TempDir()
+	tool, cfg, _ := fakeTool(dir)
+	tool.DefaultEndpoint = "https://api.openai.com/v1"
+	endpoint := "https://api.openai.com/v1"
+	tool.Describe = func() (tools.Info, error) { return tools.Info{Endpoint: endpoint}, nil }
+	write(t, cfg, "official")
+
+	s := newStore(t)
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	endpoint = "https://relay.example.com/v1"
+	if err := s.EnsureDefault(tool); err != nil {
+		t.Fatal(err)
+	}
+	if _, editable := s.GetSpec(tool.Name, DefaultName); editable {
+		t.Error("existing official default was reclassified from current custom provider")
+	}
+	if got, _ := os.ReadFile(filepath.Join(s.profDir(tool.Name, DefaultName), "config")); string(got) != "official" {
+		t.Errorf("default snapshot = %q, want official", got)
+	}
+}
+
 func TestSaveSwitchRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	tool, cfg, auth := fakeTool(dir)

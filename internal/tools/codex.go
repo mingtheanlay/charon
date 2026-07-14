@@ -76,6 +76,33 @@ func newCodex() *Tool {
 			}
 			return writeTOMLMap(configPath, cfg, 0o600)
 		},
+		OfficialOAuth: func() bool {
+			data, err := os.ReadFile(authPath)
+			if err != nil {
+				return false
+			}
+			var auth struct {
+				AuthMode string `json:"auth_mode"`
+				Tokens   any    `json:"tokens"`
+			}
+			return json.Unmarshal(data, &auth) == nil && (auth.AuthMode == "chatgpt" || auth.Tokens != nil)
+		},
+		UseOfficialAuth: func() error {
+			cfg, err := loadTOMLMap(configPath)
+			if err != nil {
+				return err
+			}
+			delete(cfg, "model_provider")
+			delete(cfg, "model_context_window")
+			return writeTOMLMap(configPath, cfg, 0o600)
+		},
+		OAuthFingerprint: func() string {
+			info, err := os.Stat(authPath)
+			if err != nil {
+				return ""
+			}
+			return info.ModTime().String()
+		},
 		Detected: func() bool {
 			return detected("codex", configPath, authPath)
 		},

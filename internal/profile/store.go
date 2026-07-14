@@ -50,7 +50,8 @@ type Store struct {
 }
 
 type config struct {
-	Active map[string]string `json:"active"` // tool name -> profile name
+	Active           map[string]string `json:"active"`                     // tool name -> profile name
+	OAuthFingerprint map[string]string `json:"oauthFingerprint,omitempty"` // tool name -> last-seen OAuthFingerprint, to detect a fresh login
 }
 
 // Open returns the store rooted at $XDG_CONFIG_HOME/charon (default ~/.config/charon).
@@ -117,6 +118,22 @@ func (s *Store) setActive(tool, name string) error {
 
 // SetActiveName marks a profile active without applying files (used right after Save).
 func (s *Store) SetActiveName(tool, name string) error { return s.setActive(tool, name) }
+
+// lastOAuthFingerprint returns the OAuth credential fingerprint last recorded for a
+// tool, or "" if none has been seen yet.
+func (s *Store) lastOAuthFingerprint(tool string) string {
+	return s.readConfig().OAuthFingerprint[tool]
+}
+
+// setOAuthFingerprint records the OAuth credential fingerprint currently seen for a tool.
+func (s *Store) setOAuthFingerprint(tool, fp string) error {
+	c := s.readConfig()
+	if c.OAuthFingerprint == nil {
+		c.OAuthFingerprint = map[string]string{}
+	}
+	c.OAuthFingerprint[tool] = fp
+	return s.writeConfig(c)
+}
 
 // List returns stored profile names for a tool, "default" first.
 func (s *Store) List(tool string) []string {

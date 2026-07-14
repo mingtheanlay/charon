@@ -316,11 +316,13 @@ func (m *model) loadProfiles(selectName string) {
 // charon captured rather than created itself.
 func (m *model) profileDetail(name string) string {
 	model, effort := m.store.ProfileModelEffort(m.tool, name)
+	liveEndpoint := ""
 	// The active profile's on-disk snapshot only resyncs when you switch away (see
 	// refreshMergerArtifacts) — an external /model change while it's active leaves the
 	// snapshot stale. Read live config instead so the list matches what's actually set.
 	if name == m.store.Active(m.tool.Name) && m.tool.Describe != nil {
 		if info, err := m.tool.Describe(); err == nil {
+			liveEndpoint = info.Endpoint
 			if info.Model != "" {
 				model = info.Model
 			}
@@ -333,14 +335,16 @@ func (m *model) profileDetail(name string) string {
 	if hasSpec && model == "" {
 		model = spec.Model
 	}
-	if !hasSpec && model == "" && effort == "" {
+	if !hasSpec && model == "" && effort == "" && liveEndpoint == "" {
 		if man, err := m.store.LoadManifest(m.tool.Name, name); err == nil && man.Label != "" {
 			return man.Label
 		}
 		return "captured config"
 	}
 	url := "default endpoint"
-	if hasSpec {
+	if liveEndpoint != "" {
+		url = liveEndpoint
+	} else if hasSpec {
 		if u := m.tool.ResolveEndpoint(spec.Endpoint); u != "" {
 			url = u
 		}
@@ -442,20 +446,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // onEditKey opens the edit form for the highlighted profile ("e" on the profiles
-// view). The default profile and captured login backups have nothing to edit.
+// view). Official defaults and captured login backups have nothing to edit.
 func (m model) onEditKey() (tea.Model, tea.Cmd) {
 	it, ok := m.selectedProfile()
 	if !ok {
 		return m, nil
 	}
-	if it.value == profile.DefaultName {
-		m.setStatus(statusInfo, "the default profile can't be edited")
-		return m, nil
-	}
 	sp, ok := m.store.GetSpec(m.tool.Name, it.value)
 	if !ok {
-		// OAuth / captured backups have no endpoint/key to change.
-		m.setStatus(statusInfo, "this login backup has no editable settings")
+		// OAuth / official default / captured backups have no endpoint/key to change.
+		m.setStatus(statusInfo, "this profile has no editable settings")
 		return m, nil
 	}
 	// spec.Model is frozen at Add-time; prefer whatever the list just showed (the

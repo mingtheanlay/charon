@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"charon/internal/artifact"
@@ -130,6 +131,26 @@ func (s *Store) EditProfile(t *tools.Tool, oldName, newName string, spec Spec, a
 	if newName == "" {
 		newName = oldName
 	}
+	if oldName == DefaultName {
+		if newName != DefaultName {
+			return fmt.Errorf("the default profile cannot be renamed")
+		}
+		if _, ok := s.GetSpec(t.Name, DefaultName); !ok {
+			return fmt.Errorf("the official default profile cannot be edited")
+		}
+		if t.ApplyAuth == nil {
+			return fmt.Errorf("%s does not support edit", t.Title)
+		}
+		if t.Detected != nil && t.Detected() {
+			if _, err := s.backup(t, "auto-backup before editing default"); err != nil {
+				return fmt.Errorf("backup failed, aborting: %w", err)
+			}
+		}
+		if err := t.ApplyAuth(tools.AuthSpec{Endpoint: spec.Endpoint, Key: spec.Key, Model: spec.Model, AllModels: allModels}); err != nil {
+			return err
+		}
+		return snapshot(t, s.profDir(t.Name, DefaultName), "Default (auto-captured custom provider)", "", "", "", &spec)
+	}
 	prevActive := s.Active(t.Name)
 	wasActive := prevActive == oldName
 
@@ -158,20 +179,219 @@ func (s *Store) GetSpec(tool, name string) (Spec, bool) {
 	return *m.Spec, true
 }
 
-// EnsureDefault captures the "default" profile the first time a tool is seen, so
-// revert always works. It writes the reserved name directly — Save rejects it.
+// EnsureDefault captures a clean official default the first time a tool is seen.
+// A live custom provider is imported as a normal editable profile and left active.
 func (s *Store) EnsureDefault(t *tools.Tool) error {
 	if s.Exists(t.Name, DefaultName) {
+		if _, custom := s.GetSpec(t.Name, DefaultName); custom && t.UseOfficialAuth != nil {
+			return s.splitCustomDefault(t)
+		}
+		// A genuinely fresh OAuth login (the credential itself changed since we last
+		// saw it) always takes priority, even over an explicitly active custom
+		// profile: back up whatever was live and switch to official default, so the
+		// custom profile survives untouched and can be switched back to later.
+		if fresh, err := s.freshOAuthLogin(t); err != nil {
+			return err
+		} else if fresh && t.UseOfficialAuth != nil {
+			return s.activateOfficialOAuth(t)
+		}
+		// Stale custom routing left over despite official OAuth already being active
+		// (not a fresh login) is only cleared when nothing else has claimed activity.
+		if s.Active(t.Name) == DefaultName && t.OfficialOAuth != nil && t.OfficialOAuth() && t.UseOfficialAuth != nil && s.liveUsesCustomEndpoint(t) {
+			return s.activateOfficialOAuth(t)
+		}
+		if matched, err := s.reconcileActiveCustomProfile(t); err != nil || matched {
+			return err
+		}
 		return nil
 	}
 	if t.Detected == nil || !t.Detected() {
 		return nil
 	}
-	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (auto-captured)", "", "", "", nil); err != nil {
+	if t.Describe != nil {
+		info, err := t.Describe()
+		if err != nil {
+			return fmt.Errorf("describing %s before capturing default: %w", t.Title, err)
+		}
+		endpoint := strings.TrimRight(info.Endpoint, "/")
+		defaultEndpoint := strings.TrimRight(t.DefaultEndpoint, "/")
+		if endpoint != "" && !strings.Contains(endpoint, "(default)") && endpoint != defaultEndpoint && t.UseOfficialAuth != nil {
+			if err := s.importCustomAndCreateDefault(t, Spec{Endpoint: info.Endpoint, Key: info.Secret, Model: info.Model}); err != nil {
+				return err
+			}
+			return s.recordOAuthBaseline(t)
+		}
+	}
+	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official provider)", "", "", "", nil); err != nil {
 		return err
 	}
 	if s.Active(t.Name) == "" {
-		return s.setActive(t.Name, DefaultName)
+		if err := s.setActive(t.Name, DefaultName); err != nil {
+			return err
+		}
+	}
+	return s.recordOAuthBaseline(t)
+}
+
+// freshOAuthLogin reports whether the *official* OAuth credential changed since
+// charon last recorded it — i.e. a login just happened, not merely "a token
+// exists" (true forever after the first login) and not some other credential
+// write (e.g. charon's own `switch` rewriting auth.json with a profile's API
+// key). Only fingerprints while OfficialOAuth() is true, so switching to/from a
+// custom profile never looks like a login. The first time a fingerprint is seen
+// it's recorded as a baseline rather than treated as a login, so upgrading
+// charon on an existing official-OAuth setup doesn't surprise-switch anyone.
+func (s *Store) freshOAuthLogin(t *tools.Tool) (bool, error) {
+	if t.OAuthFingerprint == nil || t.OfficialOAuth == nil || !t.OfficialOAuth() {
+		return false, nil
+	}
+	fp := t.OAuthFingerprint()
+	if fp == "" {
+		return false, nil
+	}
+	last := s.lastOAuthFingerprint(t.Name)
+	if last == "" {
+		return false, s.setOAuthFingerprint(t.Name, fp)
+	}
+	if fp == last {
+		return false, nil
+	}
+	return true, s.setOAuthFingerprint(t.Name, fp)
+}
+
+// recordOAuthBaseline stores the current official OAuth fingerprint without
+// treating it as a fresh login, for paths that don't already go through
+// freshOAuthLogin.
+func (s *Store) recordOAuthBaseline(t *tools.Tool) error {
+	if t.OAuthFingerprint == nil || t.OfficialOAuth == nil || !t.OfficialOAuth() {
+		return nil
+	}
+	if fp := t.OAuthFingerprint(); fp != "" {
+		return s.setOAuthFingerprint(t.Name, fp)
 	}
 	return nil
+}
+
+// reconcileActiveCustomProfile re-activates a saved custom profile when live
+// routing was pointed at it directly (e.g. a manual config edit) instead of
+// through charon switch. Only fires on a unique endpoint match; an endpoint
+// matching no saved profile, or matching more than one, is left as-is — the
+// "default" label stays, and status/ls already show the live endpoint and a
+// "(modified)" marker via Drift.
+func (s *Store) reconcileActiveCustomProfile(t *tools.Tool) (bool, error) {
+	if s.Active(t.Name) != DefaultName || t.Describe == nil {
+		return false, nil
+	}
+	info, err := t.Describe()
+	if err != nil {
+		return false, nil
+	}
+	endpoint := strings.TrimRight(info.Endpoint, "/")
+	if endpoint == "" || endpoint == strings.TrimRight(t.DefaultEndpoint, "/") || strings.Contains(endpoint, "(default)") {
+		return false, nil
+	}
+	match := ""
+	ambiguous := false
+	for _, name := range s.List(t.Name) {
+		if name == DefaultName {
+			continue
+		}
+		spec, ok := s.GetSpec(t.Name, name)
+		if !ok || strings.TrimRight(spec.Endpoint, "/") != endpoint {
+			continue
+		}
+		if match != "" {
+			ambiguous = true
+			break
+		}
+		match = name
+	}
+	if ambiguous || match == "" {
+		return false, nil
+	}
+	return true, s.setActive(t.Name, match)
+}
+
+func (s *Store) liveUsesCustomEndpoint(t *tools.Tool) bool {
+	if t.Describe == nil {
+		return false
+	}
+	info, err := t.Describe()
+	if err != nil {
+		return false
+	}
+	endpoint := strings.TrimRight(info.Endpoint, "/")
+	defaultEndpoint := strings.TrimRight(t.DefaultEndpoint, "/")
+	return endpoint != "" && !strings.Contains(endpoint, "(default)") && endpoint != defaultEndpoint
+}
+
+// activateOfficialOAuth removes stale custom routing after an official login,
+// preserving the imported profile and newly-created OAuth credentials.
+func (s *Store) activateOfficialOAuth(t *tools.Tool) error {
+	if _, err := s.backup(t, "auto-backup before activating official OAuth"); err != nil {
+		return fmt.Errorf("backup failed, aborting: %w", err)
+	}
+	if err := t.UseOfficialAuth(); err != nil {
+		return fmt.Errorf("activating official OAuth: %w", err)
+	}
+	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official OAuth)", "", "", "", nil); err != nil {
+		return err
+	}
+	return s.setActive(t.Name, DefaultName)
+}
+
+func (s *Store) nextImportedName(tool string) string {
+	name := "imported"
+	for i := 2; s.Exists(tool, name); i++ {
+		name = fmt.Sprintf("imported-%d", i)
+	}
+	return name
+}
+
+// importCustomAndCreateDefault temporarily clears custom routing to snapshot a
+// clean official default, then restores the imported custom profile as active.
+func (s *Store) importCustomAndCreateDefault(t *tools.Tool, spec Spec) error {
+	name := s.nextImportedName(t.Name)
+	if err := snapshot(t, s.profDir(t.Name, name), name, "Auto-imported custom provider", "", "", &spec); err != nil {
+		return err
+	}
+	if err := t.UseOfficialAuth(); err != nil {
+		return fmt.Errorf("creating official default: %w", err)
+	}
+	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official provider)", "", "", "", nil); err != nil {
+		_ = s.restoreFrom(t, s.profDir(t.Name, name))
+		return err
+	}
+	if err := s.restoreFrom(t, s.profDir(t.Name, name)); err != nil {
+		return fmt.Errorf("restoring imported custom provider: %w", err)
+	}
+	return s.setActive(t.Name, name)
+}
+
+// splitCustomDefault migrates custom defaults created by earlier builds into the
+// same imported + clean official layout used for new installations.
+func (s *Store) splitCustomDefault(t *tools.Tool) error {
+	name := s.nextImportedName(t.Name)
+	if err := os.Rename(s.profDir(t.Name, DefaultName), s.profDir(t.Name, name)); err != nil {
+		return fmt.Errorf("preserving custom default as %q: %w", name, err)
+	}
+	m, err := s.LoadManifest(t.Name, name)
+	if err != nil {
+		return err
+	}
+	m.Label = name
+	if err := writeManifest(s.profDir(t.Name, name), m); err != nil {
+		return err
+	}
+	if err := t.UseOfficialAuth(); err != nil {
+		_ = os.Rename(s.profDir(t.Name, name), s.profDir(t.Name, DefaultName))
+		return fmt.Errorf("creating official default: %w", err)
+	}
+	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official provider)", "", "", "", nil); err != nil {
+		return err
+	}
+	if err := s.restoreFrom(t, s.profDir(t.Name, name)); err != nil {
+		return err
+	}
+	return s.setActive(t.Name, name)
 }

@@ -57,13 +57,16 @@ func (m *model) loadEditForm() {
 	if endpoint == "" {
 		endpoint = "(none)"
 	}
-	m.list.SetDelegate(themedDelegate()) // two-line rows show each field's value
-	m.list.SetItems([]list.Item{
-		item{title: "Name", desc: m.wiz.name, value: fieldName},
+	items := []list.Item{
 		item{title: "URL", desc: endpoint, value: fieldURL},
 		item{title: "Token", desc: token, value: fieldToken},
 		item{title: "Model", desc: modelVal + "  (e to fetch & pick)", value: fieldModel},
-	})
+	}
+	if m.wiz.origName != profile.DefaultName {
+		items = append([]list.Item{item{title: "Name", desc: m.wiz.name, value: fieldName}}, items...)
+	}
+	m.list.SetDelegate(themedDelegate()) // two-line rows show each field's value
+	m.list.SetItems(items)
 	m.list.Title = fmt.Sprintf("Edit %s / %s", m.tool.Title, m.wiz.name)
 	// Land on the field last visited; a fresh edit falls back to the first row.
 	m.list.Select(0)
@@ -78,6 +81,10 @@ func (m *model) loadEditForm() {
 func (m model) onEditFormSelect(field string) (tea.Model, tea.Cmd) {
 	switch field {
 	case fieldName:
+		if m.wiz.origName == profile.DefaultName {
+			m.setStatus(statusInfo, "the default profile can't be renamed")
+			return m, nil
+		}
 		m.editField = field
 		m.view = viewEditField
 		m.startInput("profile name", false)
