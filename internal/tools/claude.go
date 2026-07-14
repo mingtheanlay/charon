@@ -14,7 +14,8 @@ const claudeKeychainService = "Claude Code-credentials"
 
 // newClaude describes Claude Code: API keys in ~/.claude/settings.json, OAuth in the keychain.
 func newClaude() *Tool {
-	settingsPath := filepath.Join(home(), ".claude", "settings.json")
+	dir := filepath.Join(home(), ".claude")
+	settingsPath := filepath.Join(dir, "settings.json")
 
 	return &Tool{
 		Name:            "claude",
@@ -70,7 +71,7 @@ func newClaude() *Tool {
 			return writeJSONMap(settingsPath, s, 0o600)
 		},
 		Detected: func() bool {
-			if _, err := os.Stat(settingsPath); err == nil {
+			if detected("claude", settingsPath) {
 				return true
 			}
 			_, err := secret.KeychainRead(claudeKeychainService)

@@ -76,6 +76,52 @@ func TestCodexDescribeAndApply(t *testing.T) {
 	}
 }
 
+func TestDetectedWithoutAuth(t *testing.T) {
+	home := sandboxHome(t)
+	t.Setenv("PATH", t.TempDir())
+
+	for _, tc := range []struct {
+		tool   string
+		config string
+	}{
+		{tool: "codex", config: filepath.Join(home, ".codex", "config.toml")},
+		{tool: "claude", config: filepath.Join(home, ".claude", "settings.json")},
+		{tool: "opencode", config: filepath.Join(home, ".config", "opencode", "opencode.jsonc")},
+		{tool: "pi", config: filepath.Join(home, ".pi", "agent", "settings.json")},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			writeFile(t, tc.config, "")
+			if !Find(tc.tool).Detected() {
+				t.Errorf("%s should be detected via config without auth", tc.tool)
+			}
+			if err := os.RemoveAll(filepath.Dir(tc.config)); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestEmptyConfigDirectoriesAreNotDetected(t *testing.T) {
+	home := sandboxHome(t)
+	t.Setenv("PATH", t.TempDir())
+
+	for _, dir := range []string{
+		filepath.Join(home, ".codex"),
+		filepath.Join(home, ".claude"),
+		filepath.Join(home, ".config", "opencode"),
+		filepath.Join(home, ".pi", "agent"),
+	} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"codex", "claude", "opencode", "pi"} {
+		if Find(name).Detected() {
+			t.Errorf("%s should not be detected via an empty config directory", name)
+		}
+	}
+}
+
 func TestCodexPinsClaudeContextWindow(t *testing.T) {
 	home := sandboxHome(t)
 	// A prior Claude profile pinned the window; switching to an OpenAI model
@@ -515,6 +561,7 @@ func TestEnsureOnlyCharonChanged(t *testing.T) {
 
 func TestNotDetectedInEmptyHome(t *testing.T) {
 	sandboxHome(t)
+	t.Setenv("PATH", t.TempDir())
 	for _, name := range []string{"codex", "opencode", "pi"} {
 		if Find(name).Detected() {
 			t.Errorf("%s should not be detected in empty HOME", name)
@@ -525,13 +572,11 @@ func TestNotDetectedInEmptyHome(t *testing.T) {
 func TestPiDescribeAndApply(t *testing.T) {
 	home := sandboxHome(t)
 	dir := filepath.Join(home, ".pi", "agent")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, filepath.Join(dir, "settings.json"), `{}`)
 
 	c := Find("pi")
 	if !c.Detected() {
-		t.Fatal("pi should be detected via ~/.pi/agent")
+		t.Fatal("pi should be detected via settings.json")
 	}
 	if err := c.ApplyAuth(AuthSpec{
 		Endpoint:  "https://openrouter.ai/api/v1",

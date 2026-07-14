@@ -77,8 +77,7 @@ func newCodex() *Tool {
 			return writeTOMLMap(configPath, cfg, 0o600)
 		},
 		Detected: func() bool {
-			_, err := os.Stat(authPath)
-			return err == nil
+			return detected("codex", configPath, authPath)
 		},
 		Describe: func() (Info, error) {
 			var info Info

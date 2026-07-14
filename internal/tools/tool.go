@@ -2,6 +2,9 @@
 package tools
 
 import (
+	"os"
+	"os/exec"
+
 	"charon/internal/artifact"
 )
 
@@ -44,6 +47,18 @@ type Tool struct {
 	Detected        func() bool          // is the tool installed/configured?
 	Describe        func() (Info, error) // read live config into an Info
 	ApplyAuth       func(AuthSpec) error // write endpoint/key/model into live config
+}
+
+func detected(executable string, paths ...string) bool {
+	if _, err := exec.LookPath(executable); err == nil {
+		return true
+	}
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // All returns the supported tools in a stable display order.
