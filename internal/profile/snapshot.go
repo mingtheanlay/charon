@@ -186,6 +186,9 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 		if _, custom := s.GetSpec(t.Name, DefaultName); custom && t.UseOfficialAuth != nil {
 			return s.splitCustomDefault(t)
 		}
+		if t.OfficialOAuth != nil && t.OfficialOAuth() && t.UseOfficialAuth != nil && s.liveUsesCustomEndpoint(t) {
+			return s.activateOfficialOAuth(t)
+		}
 		return nil
 	}
 	if t.Detected == nil || !t.Detected() {
@@ -209,6 +212,34 @@ func (s *Store) EnsureDefault(t *tools.Tool) error {
 		return s.setActive(t.Name, DefaultName)
 	}
 	return nil
+}
+
+func (s *Store) liveUsesCustomEndpoint(t *tools.Tool) bool {
+	if t.Describe == nil {
+		return false
+	}
+	info, err := t.Describe()
+	if err != nil {
+		return false
+	}
+	endpoint := strings.TrimRight(info.Endpoint, "/")
+	defaultEndpoint := strings.TrimRight(t.DefaultEndpoint, "/")
+	return endpoint != "" && !strings.Contains(endpoint, "(default)") && endpoint != defaultEndpoint
+}
+
+// activateOfficialOAuth removes stale custom routing after an official login,
+// preserving the imported profile and newly-created OAuth credentials.
+func (s *Store) activateOfficialOAuth(t *tools.Tool) error {
+	if _, err := s.backup(t, "auto-backup before activating official OAuth"); err != nil {
+		return fmt.Errorf("backup failed, aborting: %w", err)
+	}
+	if err := t.UseOfficialAuth(); err != nil {
+		return fmt.Errorf("activating official OAuth: %w", err)
+	}
+	if err := snapshot(t, s.profDir(t.Name, DefaultName), "Default (official OAuth)", "", "", "", nil); err != nil {
+		return err
+	}
+	return s.setActive(t.Name, DefaultName)
 }
 
 func (s *Store) nextImportedName(tool string) string {
