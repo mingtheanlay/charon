@@ -71,7 +71,7 @@ func newClaude() *Tool {
 			return writeJSONMap(settingsPath, s, 0o600)
 		},
 		Detected: func() bool {
-			if detected("claude", dir) {
+			if detected("claude", settingsPath) {
 				return true
 			}
 			_, err := secret.KeychainRead(claudeKeychainService)

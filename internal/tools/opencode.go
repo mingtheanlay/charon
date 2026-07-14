@@ -27,7 +27,6 @@ func opencodeConfigPath() string {
 // credentials in ~/.local/share/opencode/auth.json.
 func newOpenCode() *Tool {
 	configPath := opencodeConfigPath()
-	configDir := filepath.Dir(configPath)
 	dataDir := filepath.Join(home(), ".local", "share", "opencode")
 	authPath := filepath.Join(dataDir, "auth.json")
 
@@ -108,7 +107,7 @@ func newOpenCode() *Tool {
 			return writeJSONMap(configPath, cfg, 0o600)
 		},
 		Detected: func() bool {
-			return detected("opencode", configDir, dataDir)
+			return detected("opencode", configPath, authPath)
 		},
 		Describe: func() (Info, error) {
 			var info Info
